@@ -4,7 +4,7 @@
  * Cào live cần thêm: npm install playwright && npx playwright install chromium
  */
 import { spawn } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
@@ -95,6 +95,25 @@ function normalizeDataset(raw) {
   return { post: main, comments };
 }
 
+// Chọn N bình luận tương tác cao nhất (tổng tim + trả lời + đăng lại
+// + chia sẻ), rồi trả về theo đúng thứ tự trên trang để chuỗi hội
+// thoại giữ nguyên vẹn. Bình luận chưa có số liệu (stats 0) thì giữ
+// thứ tự trang (sort ổn định).
+function selectTopComments(comments, n) {
+  const list = Array.isArray(comments) ? comments : [];
+  if (list.length <= n) return list;
+  const score = (c) => {
+    const s = c.stats || {};
+    return (s.likes || 0) + (s.replies || 0) + (s.reposts || 0) + (s.shares || 0);
+  };
+  const picked = new Set(list
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => score(b.c) - score(a.c) || a.i - b.i)
+    .slice(0, n)
+    .map((x) => x.i));
+  return list.filter((_, i) => picked.has(i));
+}
+
 const server = createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://localhost');
@@ -128,6 +147,13 @@ const server = createServer(async (req, res) => {
       const f = join(CARD_PREVIEW, basename(decodeURIComponent(p)));
       if (!existsSync(f)) { send(res, 404, { error: 'Chưa có ảnh thẻ.' }); return; }
       res.writeHead(200, { 'Content-Type': 'image/png' });
+      createReadStream(f).pipe(res); return;
+    }
+    if (req.method === 'GET' && p.startsWith('/tts-test/')) {
+      // File mp3 giọng đọc thử (tạo bởi /api/tts-test), lấy theo basename.
+      const f = join(OUT, basename(decodeURIComponent(p)));
+      if (!existsSync(f) || !basename(p).startsWith('tts-test-')) { send(res, 404, { error: 'Không tìm thấy file giọng đọc thử.' }); return; }
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
       createReadStream(f).pipe(res); return;
     }
     if (req.method === 'GET' && p.startsWith('/out/')) {
@@ -170,20 +196,22 @@ const server = createServer(async (req, res) => {
       const maxComments = Math.max(1, Math.min(50, parseInt(body.maxComments || '20', 10) || 20));
       if (mode === 'demo') {
         const demo = JSON.parse(readFileSync(join(ROOT, 'demo-data.json'), 'utf8'));
-        demo.comments = demo.comments.slice(0, maxComments);
+        demo.comments = selectTopComments(demo.comments, maxComments);
         send(res, 200, demo); return;
       }
       if (mode === 'paste') {
         let raw;
         try { raw = JSON.parse(body.pasteJson || ''); } catch { send(res, 400, { error: 'JSON dán vào không hợp lệ.' }); return; }
         const norm = normalizeDataset(raw);
-        norm.comments = norm.comments.slice(0, maxComments);
+        norm.comments = selectTopComments(norm.comments, maxComments);
         norm.source = 'paste';
         send(res, 200, norm); return;
       }
       const url = String(body.url || '').trim();
       if (!url || !/threads\.(com|net)/i.test(url)) { send(res, 400, { error: 'Dán link bài viết Threads (threads.com / threads.net).' }); return; }
-      const child = spawn(process.execPath, [join(ROOT, 'scraper.js'), url, String(maxComments)], { timeout: 150000 });
+      // Cào live luôn lấy tối đa 50 bình luận để chọn ra N bình luận
+      // tương tác cao nhất; việc chọn làm ở selectTopComments bên dưới.
+      const child = spawn(process.execPath, [join(ROOT, 'scraper.js'), url, '50'], { timeout: 150000 });
       let out = '', err = '';
       child.stdout.on('data', (d) => { out += d; });
       child.stderr.on('data', (d) => { err += d; });
@@ -198,8 +226,46 @@ const server = createServer(async (req, res) => {
           send(res, 502, { error: (msg || 'Cào live thất bại. Thử chế độ Demo hoặc dán JSON dataset của toolkit.') });
           return;
         }
-        try { const data = JSON.parse(out); data.comments = data.comments.slice(0, maxComments); send(res, 200, data); }
+        try { const data = JSON.parse(out); data.comments = selectTopComments(data.comments, maxComments); send(res, 200, data); }
         catch { send(res, 502, { error: 'Scraper trả về dữ liệu không đọc được.' }); }
+      });
+      return;
+    }
+    if (req.method === 'POST' && p === '/api/tts-test') {
+      // Thử giọng đọc thật một câu ngắn: chạy tts.py (Edge TTS) rồi trả
+      // về file mp3 để nghe thử ngay trên giao diện. Lỗi (mất mạng,
+      // chưa cài edge-tts, treo quá 75 giây) trả về ok:false kèm lý do
+      // thật — để biết chắc giọng đọc có chạy được trên máy này không,
+      // thay vì video xuất ra im lặng mà không rõ nguyên nhân.
+      const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+      const voice = String(body.voice || 'vi-VN-HoaiMyNeural');
+      const text = String(body.text || 'Xin chào, đây là giọng đọc thử của Threads Comment Studio.').slice(0, 200);
+      const venvPy = process.platform === 'win32' ? join(ROOT, '.venv', 'Scripts', 'python.exe') : join(ROOT, '.venv', 'bin', 'python');
+      const py = existsSync(venvPy) ? venvPy : (process.platform === 'win32' ? 'python' : 'python3');
+      const name = `tts-test-${randomUUID()}.mp3`;
+      const outPath = join(OUT, name);
+      try {
+        for (const f of readdirSync(OUT)) {
+          if (f.startsWith('tts-test-') && f !== name) { try { unlinkSync(join(OUT, f)); } catch { /* bỏ qua */ } }
+        }
+      } catch { /* bỏ qua */ }
+      const child = spawn(py, [join(ROOT, 'tts.py'), '--text', text, '--voice', voice, '--rate-percent', '20', '--out', outPath],
+        { timeout: 75000, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8:replace' } });
+      let err = '';
+      child.stderr.on('data', (d) => { err += d; });
+      child.on('close', (code) => {
+        if (code !== 0 || !existsSync(outPath) || statSync(outPath).size <= 1000) {
+          const msg = err.trim().split('\n').filter(Boolean).slice(-1)[0]?.slice(0, 300)
+            || `tts.py thoát mã ${code}, không tạo được file giọng đọc.`;
+          send(res, 200, { ok: false, error: msg, voice }); return;
+        }
+        const probe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', outPath], { timeout: 10000 });
+        let probeOut = '';
+        probe.stdout.on('data', (d) => { probeOut += d; });
+        probe.on('close', () => {
+          const seconds = parseFloat(probeOut.trim()) || 0;
+          send(res, 200, { ok: true, seconds: Math.round(seconds * 10) / 10, voice, audioUrl: `/tts-test/${name}` });
+        });
       });
       return;
     }

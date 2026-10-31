@@ -59,7 +59,9 @@ async function writeScrapeDiagnostics(page, reason) {
       }
       // Mẫu nút thống kê trong khung bài đầu tiên: để sửa lỗi stats
       // toàn 0 — cần biết nút like/reply là thẻ gì, số nằm ở đâu.
+      // Thêm cả các khối số trần cạnh SVG (dạng DOM thật 31/10).
       let statButtons = [];
+      let bareNumbers = [];
       const probe = document.querySelector('[data-pressable-container]');
       if (probe) {
         statButtons = Array.from(probe.querySelectorAll('div[role="button"], button, a, svg'))
@@ -71,11 +73,20 @@ async function writeScrapeDiagnostics(page, reason) {
           }))
           .filter((b) => b.aria || /\d/.test(b.text))
           .slice(0, 14);
+        bareNumbers = Array.from(probe.querySelectorAll('div, span'))
+          .filter((el) => /^[\d][\d.,\s]*(triệu|nghìn|tr|k|m)?$/i.test((el.textContent || '').trim()))
+          .slice(0, 20)
+          .map((el) => ({
+            tag: el.tagName,
+            text: (el.textContent || '').trim(),
+            hasSvg: !!(el.parentElement && el.parentElement.querySelector('svg')),
+          }));
       }
       return {
         url: location.href,
         title: document.title,
         statButtons,
+        bareNumbers,
         counts: {
           postLinks: links.length,
           tabindexUnits: document.querySelectorAll('div[tabindex="0"]').length,

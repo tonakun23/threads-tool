@@ -70,15 +70,17 @@ def make_watermark_png(text: str, out: Path) -> None:
 
     Tránh FFmpeg drawtext: đường dẫn font Windows (C:\\...) và ký tự
     tiếng Việt hay làm drawtext lỗi escape trên Windows.
+
+    Chỉ có chữ xám mờ, KHÔNG nền (quyết định của Tony 31/10): chữ xám
+    (190,190,190) mờ alpha 165, không vẽ hình nền nào sau chữ.
     """
     fnt = font(FONT_BOLD, 34)
     tmp = Image.new("RGBA", (10, 10))
     d = ImageDraw.Draw(tmp)
-    tw = int(d.textlength(text, font=fnt)) + 32
-    img = Image.new("RGBA", (tw, 62), (0, 0, 0, 0))
+    tw = int(d.textlength(text, font=fnt)) + 16
+    img = Image.new("RGBA", (tw, 52), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, tw - 1, 61], radius=12, fill=(0, 0, 0, 115))
-    d.text((16, 13), text, font=fnt, fill=(255, 255, 255, 255))
+    d.text((8, 8), text, font=fnt, fill=(190, 190, 190, 165))
     img.save(out, "PNG")
 
 
@@ -340,12 +342,18 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
     if sys.executable not in candidates:
         candidates.append(sys.executable)
     for py in candidates:
-        r = subprocess.run(
-            [str(py), str(HERE / "tts.py"), "--text", text, "--voice", voice,
-             "--rate-percent", str(rate), "--out", str(out)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            encoding="utf-8", errors="replace",
-            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8:replace"})
+        try:
+            r = subprocess.run(
+                [str(py), str(HERE / "tts.py"), "--text", text, "--voice", voice,
+                 "--rate-percent", str(rate), "--out", str(out)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                encoding="utf-8", errors="replace", timeout=75,
+                env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8:replace"})
+        except subprocess.TimeoutExpired:
+            # TTS treo (mạng tới Edge TTS kẹt) thì thua nhanh sau 75 giây,
+            # khỏi treo cả job render ở đoạn đầu — lỗi Tony gặp 31/10.
+            print(f"TTS timeout ({py}, 75s): Edge TTS không trả lời, thử tiếp...", flush=True)
+            continue
         if r.returncode == 0 and out.exists() and out.stat().st_size > 1000:
             dur = ffprobe_duration(out)
             if dur > 0:

@@ -274,9 +274,16 @@ function extractPosts(doc) {
     content = content.split('\n').filter((line) => !isJunkText(line.trim())).join('\n').trim();
     if (!content) continue;
 
-    // Thống kê: nút trong đơn vị này, loại nút của đơn vị con.
-    // Nhận diện theo từ khóa (aria-label/text); nút không nhãn thì gán
-    // theo thứ tự cố định của Threads: Thích, Bình luận, Đăng lại, Chia sẻ.
+    // Thống kê — 3 lượt theo độ tin cậy giảm dần:
+    // (1) nút có nhãn từ khóa (like/thích, comment/bình luận, repost,
+    //     share) được gán đúng loại;
+    // (2) khối số trần đứng cạnh icon SVG trong khung bài (DOM thật
+    //     31/10: hàng số liệu là các khối "8,5K", "79", "923", "1K"
+    //     nằm cạnh icon, KHÔNG nằm trong nút role="button") — gán theo
+    //     vị trí trong hàng: Thích, Bình luận, Đăng lại, Chia sẻ;
+    // (3) nút không nhãn gán theo cùng thứ tự đó.
+    // Lượt (2) chỉ lấy khối số trần, có SVG kề bên, không thuộc đơn vị
+    // con, không thuộc bài trích dẫn, không thuộc hàng "lượt xem".
     const statOrder = ['likes', 'replies', 'reposts', 'shares'];
     const stats = { likes: 0, replies: 0, reposts: 0, shares: 0 };
     const taken = new Set();
@@ -299,6 +306,45 @@ function extractPosts(doc) {
       else if (/share|chia sẻ/i.test(low)) kind = 'shares';
       if (kind) { stats[kind] = v; taken.add(kind); }
       else unlabeled.push(v);
+    }
+    if (taken.size < statOrder.length) {
+      const bareRe = /^[\d][\d.,\s]*(triệu|nghìn|tr|k|m)?$/i;
+      const nearSvg = (el) => {
+        if (el.querySelector('svg')) return true;
+        const p = el.parentElement;
+        if (p && p.querySelector('svg')) return true;
+        const prev = el.previousElementSibling;
+        if (prev && prev.querySelector('svg')) return true;
+        const next = el.nextElementSibling;
+        if (next && next.querySelector('svg')) return true;
+        return false;
+      };
+      const bareValues = [];
+      for (const el of unit.querySelectorAll('div, span')) {
+        const u = unitOf(el);
+        if (u && u !== unit) continue;
+        if (el.closest('div[role="button"], button')) continue;
+        const t = (el.textContent || '').trim();
+        if (!bareRe.test(t)) continue;
+        let hasBareChild = false;
+        for (const ch of el.querySelectorAll('div, span')) {
+          if (bareRe.test((ch.textContent || '').trim())) { hasBareChild = true; break; }
+        }
+        if (hasBareChild) continue;
+        const selfLink = el.closest('a[href*="/post/"]');
+        if (selfLink) {
+          const lp = postIdFromHref(selfLink.getAttribute('href') || '');
+          if (lp && lp.id !== parsed.id) continue;
+        }
+        const parentText = ((el.parentElement && el.parentElement.textContent) || '').toLowerCase();
+        if (parentText.includes('lượt xem') || parentText.includes('views')) continue;
+        if (!nearSvg(el)) continue;
+        bareValues.push(parseStatNumber(t));
+      }
+      bareValues.forEach((v, i) => {
+        const kind = statOrder[i];
+        if (kind && !taken.has(kind)) { stats[kind] = v; taken.add(kind); }
+      });
     }
     for (const v of unlabeled) {
       const empty = statOrder.find((k) => !taken.has(k));

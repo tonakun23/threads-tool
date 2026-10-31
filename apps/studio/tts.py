@@ -35,8 +35,17 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     rate = f"{args.rate_percent:+d}%"
+
+    async def _run() -> None:
+        # Edge TTS treo mạng thì không được treo cả job render theo:
+        # quá 45 giây là thua, để render.py chuyển sang chế độ im lặng.
+        await asyncio.wait_for(_speak(args.text, args.voice, rate, args.out), timeout=45)
+
     try:
-        asyncio.run(_speak(args.text, args.voice, rate, args.out))
+        asyncio.run(_run())
+    except TimeoutError:
+        print("TTS failed: timeout sau 45 giây (không nối được Edge TTS).", file=sys.stderr)
+        return 2
     except Exception as exc:  # noqa: BLE001 - mọi lỗi đều là fallback
         print(f"TTS failed: {exc}", file=sys.stderr)
         return 2

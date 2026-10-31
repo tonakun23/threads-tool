@@ -1,5 +1,5 @@
 /** Chạy: node tests/run-parse-tests.mjs (cần jsdom: xem tests/README.md)
- * 61 assertion, chia nhóm A–H. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
+ * 67 assertion, chia nhóm A–I. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -99,6 +99,15 @@ check('H03', 'stats bài gốc qua khung pressable', h[0].stats.likes === 8500 &
 check('H04', 'avatar alt tiếng Việt nhận diện được', (h[0].author.avatarUrl || '').includes('avatar-w.jpg'), h[0].author.avatarUrl);
 check('H05', 'reply lồng trong pressable cha: REP003 cha là REPLY02, sâu 1', h[2].parentId === 'REPLY02' && h[2].depth === 1 && h[1].content === '2 ng đàn ông U40 và những thú vui kì lạ', h.map((p) => [p.id, p.parentId, p.depth, p.content]));
 check('H06', 'group cột: 2 chuỗi (REPLY02+REP003, OTHER04)', (() => { const gr = groupIntoChains(h); return gr.chains.length === 2 && gr.chains[0].root.id === 'REPLY02' && gr.chains[0].replies[0].id === 'REPLY03' && gr.chains[1].root.id === 'OTHER04'; })(), groupIntoChains(h).chains.map((c) => [c.root.id, c.replies.map((r) => r.id)]));
+
+// I: fixture số liệu trần cạnh icon SVG (DOM thật 31/10 — 6 ca)
+const ii = extractPosts(load('thread-stats.html'));
+check('I01', 'đủ 3 bài, đúng thứ tự trang', eq(ii.map((p) => p.id), ['MAIN01', 'REPLY02', 'NEST03']), ii.map((p) => p.id));
+check('I02', 'stats bài gốc từ khối số trần: 8,5K/79/923/1K', ii[0].stats.likes === 8500 && ii[0].stats.replies === 79 && ii[0].stats.reposts === 923 && ii[0].stats.shares === 1000, ii[0].stats);
+check('I03', 'không lẫn lượt xem, "2024", trích dẫn vào nội dung/stats', ii[0].content === 'vì tiếc 100k mà t phải như này' && ii[0].stats.shares === 1000, [ii[0].content, ii[0].stats]);
+check('I04', 'stats reply riêng: 497/22/1/3', ii[1].stats.likes === 497 && ii[1].stats.replies === 22 && ii[1].stats.reposts === 1 && ii[1].stats.shares === 3, ii[1].stats);
+check('I05', 'reply lồng chỉ 1 con số: like 5, còn lại 0', ii[2].stats.likes === 5 && ii[2].stats.replies === 0 && ii[2].stats.reposts === 0 && ii[2].stats.shares === 0, ii[2].stats);
+check('I06', 'group stats: 1 chuỗi REPLY02+NEST03', (() => { const gr = groupIntoChains(ii); return gr.chains.length === 1 && gr.chains[0].root.id === 'REPLY02' && gr.chains[0].replies[0].id === 'NEST03'; })(), groupIntoChains(ii).chains.map((c) => [c.root.id, c.replies.map((r) => r.id)]));
 
 console.log(`\n${pass}/${pass + fail} ca PASS (${cases.filter((c) => c.ok).length} ok, ${fail} fail)`);
 process.exit(fail ? 1 : 0);

@@ -19,7 +19,7 @@
     <p class="hint">Chỉ lấy dữ liệu công khai. Tôn trọng điều khoản của Threads, đừng cào liên tục.</p>
     <div class="row">
       <input id="postUrl" type="url" placeholder="https://www.threads.com/@username/post/…  hoặc  https://www.threads.com/share/…">
-      <label>Số bình luận <select id="maxComments"><option>7</option><option selected>10</option><option>15</option><option>20</option></select></label>
+      <label>Số bình luận (tương tác cao nhất) <select id="maxComments"><option>7</option><option selected>10</option><option>15</option><option>20</option></select></label>
     </div>
     <div class="row">
       <button id="btnScrape" class="primary">Cào link</button>
@@ -51,6 +51,10 @@
     <div class="grid">
       <label>Giọng đọc AI
         <select id="voice"><option value="vi-VN-HoaiMyNeural">Hoài My (Nữ — Chuẩn)</option><option value="vi-VN-NamMinhNeural">Nam Minh (Nam — Chuẩn)</option></select>
+      </label>
+      <label>Thử giọng đọc thật
+        <span><button id="btnTtsTest" type="button">🔊 Thử giọng đọc</button> <span class="file-status" id="ttsTestStatus">Chưa thử — bấm để nghe thử 1 câu và biết chắc giọng đọc có chạy trên máy này không.</span></span>
+        <audio id="ttsTestAudio" controls hidden></audio>
       </label>
       <label>Thẻ bài trong video
         <select id="cardStyle"><option value="replica">Giống Threads (bản tối, avatar thật)</option><option value="embed">Embed Threads chính thức (nền sáng)</option><option value="hand">Vẽ tay (thẻ tối cũ)</option></select>
@@ -87,9 +91,6 @@
 </div>
 <aside class="preview-panel card" aria-label="Xem trước video">
   <h2>Xem trước <span class="sub">9:16 · cập nhật ngay khi sửa</span></h2>
-  <div class="row preview-controls">
-    <button id="btnEmbedPreview" type="button">📷 Xem thẻ thật</button>
-  </div>
   <div class="preview-frame" id="previewFrame">
     <div class="preview-bg" id="previewBg"></div>
     <div class="preview-wm preview-wm-top" id="previewWmTop" hidden></div>
@@ -113,7 +114,7 @@
   <label>Giọng đọc sẽ đọc (ô TTS của đoạn đang xem):
     <textarea id="previewTts" rows="3" readonly></textarea>
   </label>
-  <p class="hint">Khung trên tự hiện đúng thẻ sẽ dùng trong video ngay sau khi cào và khi chuyển đoạn (kiểu Giống Threads: avatar thật, số liệu đã cào; kiểu Embed: thẻ chính thức nền sáng). Nếu thẻ thật chưa dựng được thì hiện bản mô phỏng và ghi rõ lý do. Bấm “📷 Xem thẻ thật” để dựng lại, “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
+  <p class="hint">Khung trên chính là thẻ thật sẽ dùng trong video, tự dựng ngay sau khi cào và khi chuyển đoạn (kiểu Giống Threads: avatar thật, số liệu đã cào; kiểu Embed: thẻ chính thức nền sáng). Nếu thẻ thật chưa dựng được thì hiện bản mô phỏng và ghi rõ lý do. Bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
 </aside>
 </div>
 </main>
