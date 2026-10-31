@@ -17,6 +17,7 @@ storage
 apps/studio/uploads/
 apps/studio/out/
 apps/studio/jobs/
+apps/studio/debug/
 apps/studio/.venv/
 apps/studio/node_modules/
 

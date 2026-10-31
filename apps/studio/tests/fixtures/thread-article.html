@@ -1,0 +1,37 @@
+<!DOCTYPE html><html><body><div role="main">
+  <!-- DOM mới: <article>, không tabindex, không dir="auto", chữ trong span/p thường;
+       reply lồng trong article cha; một bài dùng link rút gọn /post/<id> -->
+  <article>
+    <img src="https://cdn.example/avatar-tf.jpg" alt="profile picture">
+    <a href="/@_tf.thphng28_">cột sống sinh viên</a>
+    <a href="/@_tf.thphng28_/post/ART001"><time datetime="2026-10-30T07:02:55.000Z">21 giờ</time></a>
+    <div class="thread-wrap">
+      <span>vì tiếc 100k mà t phải như này</span>
+      <span>885K lượt xem</span>
+      <article>
+        <img src="https://cdn.example/avatar-c.jpg" alt="profile picture">
+        <a href="/@user_c">User C</a>
+        <a href="/@user_c/post/REP002"><time>20 giờ</time></a>
+        <span>Trả lời lồng trong khung cha.</span>
+        <article>
+          <img src="https://cdn.example/avatar-d.jpg" alt="profile picture">
+          <a href="/@user_d">User D</a>
+          <a href="/@user_d/post/REP003"><time>19 giờ</time></a>
+          <span>Trả lời của trả lời, sâu thêm một tầng.</span>
+        </article>
+        <div role="button" aria-label="Like"><span>10</span></div>
+      </article>
+    </div>
+    <div role="button" aria-label="Like"><span>43,3K</span></div>
+    <div role="button" aria-label="Comment"><span>664</span></div>
+    <div role="button" aria-label="Repost"><span>2,5K</span></div>
+    <div role="button" aria-label="Share"><span>9,7K</span></div>
+  </article>
+  <article>
+    <img src="https://cdn.example/avatar-solo.jpg" alt="profile picture">
+    <a href="/@solo_user">Solo</a>
+    <a href="/post/ONLY99"><time datetime="2026-10-30T10:00:00.000Z">18 giờ</time></a>
+    <p>Nội dung trong thẻ p, link rút gọn.</p>
+    <div role="button" aria-label="Like"><span>12</span></div>
+  </article>
+</div></body></html>

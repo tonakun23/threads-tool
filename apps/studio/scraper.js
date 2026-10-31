@@ -8,13 +8,69 @@
  * Chạy: node scraper.js "<url>" <maxComments>
  * In ra JSON { post, comments } lên stdout. Lỗi in ra stderr + exit 1.
  */
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Khi trích xuất ra 0 bài: lưu chẩn đoán DOM thật vào debug/ để sửa
+// đúng cấu trúc trang thay vì đoán. File nằm trên máy người chạy, chỉ
+// gửi đi khi họ tự gửi — không tự upload đâu cả.
+async function writeScrapeDiagnostics(page, reason) {
+  let diag = null;
+  try {
+    diag = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a[href*="/post/"]'));
+      const units = [];
+      for (const link of links.slice(0, 3)) {
+        const chain = [];
+        let el = link, d = 0;
+        while (el && d < 9) {
+          chain.push({
+            tag: el.tagName,
+            tabindex: el.getAttribute ? el.getAttribute('tabindex') : null,
+            role: el.getAttribute ? el.getAttribute('role') : null,
+            cls: String((el.className && el.className.baseVal !== undefined) ? '' : (el.className || '')).slice(0, 80),
+          });
+          el = el.parentElement; d++;
+        }
+        const unit = link.closest('div[tabindex="0"]') || link.closest('article') || link.closest('[role="article"]');
+        const cands = unit ? Array.from(unit.querySelectorAll('div[dir="auto"], span[dir="auto"]')) : [];
+        units.push({
+          href: link.getAttribute('href'),
+          hasUnit: !!unit,
+          candCount: cands.length,
+          candTexts: cands.slice(0, 6).map((e) => (e.textContent || '').trim().slice(0, 100)),
+          unitHtml: unit ? unit.outerHTML.slice(0, 2000) : '',
+          chain,
+        });
+      }
+      return {
+        url: location.href,
+        title: document.title,
+        counts: {
+          postLinks: links.length,
+          tabindexUnits: document.querySelectorAll('div[tabindex="0"]').length,
+          articles: document.querySelectorAll('article').length,
+          roleArticles: document.querySelectorAll('[role="article"]').length,
+          dirAuto: document.querySelectorAll('[dir="auto"]').length,
+          times: document.querySelectorAll('time').length,
+        },
+        bodyTextHead: (document.body.innerText || '').slice(0, 800),
+        units,
+      };
+    });
+  } catch { return null; }
+  if (!diag) return null;
+  const dir = join(HERE, 'debug');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'scrape-debug-' + Date.now() + '.json');
+  writeFileSync(file, JSON.stringify({ reason, at: new Date().toISOString(), ...diag }, null, 1));
+  return file;
+}
 
 // threads-parse.js là module thuần, không import gì: bỏ từ khóa export
 // để chạy được trong trang qua page.evaluate (chuỗi).
@@ -81,7 +137,12 @@ try {
   const posts = await page.evaluate(EXTRACT_EXPR);
 
   const valid = posts.filter((p) => p.content && p.content.length > 3);
-  if (!valid.length) throw new Error('Cào được trang nhưng không trích xuất được nội dung bài nào (Threads đổi giao diện?). Dùng chế độ dán JSON hoặc demo.');
+  if (!valid.length) {
+    const dbg = await writeScrapeDiagnostics(page, 'empty-extraction');
+    throw new Error('Cào được trang nhưng không trích xuất được nội dung bài nào (Threads đổi giao diện?).'
+      + (dbg ? ' Đã lưu chẩn đoán DOM tại ' + dbg + ' — gửi file này để sửa đúng cấu trúc thật.' : '')
+      + ' Dùng chế độ dán JSON hoặc demo.');
+  }
   const post = valid[0];
   // GIỮ NGUYÊN THỨ TỰ TRÊN TRANG (hội thoại), không sắp xếp theo like:
   // sắp xếp lại làm đứt chuỗi trả lời cha-con trong video mẫu.

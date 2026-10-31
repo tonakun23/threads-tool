@@ -6,10 +6,11 @@
  *  - trong test Node/jsdom (import trực tiếp).
  *
  * NGUYÊN TẮC (rút ra từ video mẫu + ảnh chụp lỗi của Tony, 31/10):
- *  1. Một bài = một đơn vị `div[tabindex="0"]` gần nhất của link /post/.
- *     Không đi ngược lên container to chứa cả chuỗi trả lời — đó là lý do
- *     nội dung bị lẫn "856K lượt xem", "20 giờ", "Tác giả", cả nội dung
- *     của bình luận con vào bài cha.
+ *  1. Một bài = một đơn vị `div[tabindex="0"]` (hoặc <article> /
+ *     [role="article"] nếu DOM mới đổi khung). Không đi ngược lên
+ *     container to chứa cả chuỗi trả lời — đó là lý do nội dung bị lẫn
+ *     "856K lượt xem", "20 giờ", "Tác giả", cả nội dung của bình luận
+ *     con vào bài cha.
  *  2. Giữ nguyên thứ tự trên trang (hội thoại), KHÔNG sắp xếp theo like.
  *  3. Chuỗi trả lời (reply lồng nhau) được giữ qua parentId/depth để
  *     hiển thị gộp trong một thẻ, giống ảnh chụp màn hình Threads.
@@ -104,7 +105,11 @@ function isJunkText(t, username, displayName) {
 
 function postIdFromHref(href) {
   const m = String(href || '').match(/\/@([^/]+)\/post\/([A-Za-z0-9_-]+)/);
-  return m ? { username: m[1], id: m[2] } : null;
+  if (m) return { username: m[1], id: m[2] };
+  // Dạng rút gọn /post/<id> (không có @user): vẫn lấy được id, tên
+  // user sẽ suy ra từ link hồ sơ gần nhất trong khung bài.
+  const m2 = String(href || '').match(/\/post\/([A-Za-z0-9_-]+)/);
+  return m2 ? { username: null, id: m2[1] } : null;
 }
 
 function isInside(el, ancestor) {
@@ -114,6 +119,33 @@ function isInside(el, ancestor) {
     cur = cur.parentElement;
   }
   return false;
+}
+
+// Khung của một bài: ưu tiên div[tabindex="0"] (DOM cũ), rồi <article>
+// hoặc [role="article"] (DOM mới), rồi đi ngược tìm khung có nút thống
+// kê / thẻ time. Threads đổi khung theo đợt nên phải có nhiều đường lui.
+const UNIT_SELECTOR = 'div[tabindex="0"], article, [role="article"]';
+function unitOf(el) {
+  return el ? el.closest(UNIT_SELECTOR) : null;
+}
+function findUnit(link) {
+  let unit = link.closest('div[tabindex="0"]');
+  if (unit) return unit;
+  unit = link.closest('article') || link.closest('[role="article"]');
+  if (unit) return unit;
+  let el = link.parentElement;
+  let depth = 0;
+  while (el && depth < 12) {
+    const btns = el.querySelectorAll('div[role="button"]');
+    let stats = 0;
+    for (const b of btns) {
+      if (/like|comment|repost|share|thích|bình luận|chia sẻ/i.test(b.textContent || '')) stats++;
+    }
+    if (stats >= 2) return el;
+    if (el.querySelector('time') && el.querySelector('a[href*="/post/"]')) return el;
+    el = el.parentElement; depth++;
+  }
+  return null;
 }
 
 function extractPosts(doc) {
@@ -126,22 +158,9 @@ function extractPosts(doc) {
   for (const link of links) {
     const parsed = postIdFromHref(link.getAttribute('href') || '');
     if (!parsed || seen.has(parsed.id)) continue;
-    // Đơn vị gần nhất: div[tabindex="0"] chứa link; fallback đi ngược
-    // tối đa 12 tầng tới container có nút thống kê.
-    let unit = link.closest('div[tabindex="0"]');
-    if (!unit) {
-      let el = link.parentElement;
-      let depth = 0;
-      while (el && depth < 12) {
-        const btns = el.querySelectorAll('div[role="button"]');
-        let stats = 0;
-        for (const b of btns) {
-          if (/like|comment|repost|share|thích|bình luận|chia sẻ/i.test(b.textContent || '')) stats++;
-        }
-        if (stats >= 2) { unit = el; break; }
-        el = el.parentElement; depth++;
-      }
-    }
+    // Đơn vị gần nhất: div[tabindex="0"] / article / role=article, lui
+    // dần tới khung có nút thống kê hoặc thẻ time (xem findUnit).
+    const unit = findUnit(link);
     if (!unit) continue;
     // Link trích dẫn (quoted post) nằm chung đơn vị với bài khác thì
     // không phải một bài riêng — bỏ qua, nội dung trích dẫn cũng bị lọc.
@@ -149,27 +168,39 @@ function extractPosts(doc) {
     seen.add(parsed.id);
     idByUnit.set(unit, parsed.id);
 
-    const username = parsed.username;
+    // Tên user: từ href, hoặc suy ra từ link hồ sơ trong khung (dạng
+    // link rút gọn /post/<id> không có @user).
+    let username = parsed.username;
+    if (!username) {
+      const prof = unit.querySelector('a[href^="/@"]');
+      const pm = prof ? String(prof.getAttribute('href') || '').match(/^\/@([^/?#]+)/) : null;
+      username = pm ? pm[1] : 'unknown';
+    }
     const nameLink = unit.querySelector('a[href="/@' + username + '"]');
     let displayName = (nameLink ? (nameLink.textContent || '') : '').trim();
     if (!displayName || displayName === username) displayName = username;
     // Avatar: ưu tiên ảnh có alt profile/avatar/picture, không lấy ảnh
     // nội dung đứng trước avatar; loại ảnh của bình luận lồng nhau.
     const unitImgs = Array.from(unit.querySelectorAll('img')).filter((im) => {
-      const u = im.closest('div[tabindex="0"]');
+      const u = unitOf(im);
       return !u || u === unit;
     });
     const avatarImg = unitImgs.find((im) => /profile|avatar|picture/i.test(im.getAttribute('alt') || '')) || unitImgs[0];
     const timeEl = unit.querySelector('time');
     const timeRaw = timeEl ? (timeEl.getAttribute('datetime') || timeEl.textContent || '') : '';
 
-    // Nội dung: chỉ khối lá div/span[dir="auto"] trong đơn vị này,
-    // loại khối nằm trong đơn vị con (bình luận lồng nhau), nút, link,
+    // Nội dung: chỉ khối lá div/span[dir="auto"] trong đơn vị này.
+    // Nếu DOM mới không còn dir="auto", lui về mọi khối lá div/span/p
+    // (chỉ lấy khi không có khối dir="auto" nào, tránh trùng lặp).
+    // Loại khối nằm trong đơn vị con (bình luận lồng nhau), nút, link,
     // time, và khối thuộc bài trích dẫn (quoted post khác id).
-    const candidates = Array.from(unit.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
+    let candidates = Array.from(unit.querySelectorAll('div[dir="auto"], span[dir="auto"]'));
+    const usingFallback = candidates.length === 0;
+    if (usingFallback) candidates = Array.from(unit.querySelectorAll('div, span, p'));
     const rawBlocks = [];
     for (const el of candidates) {
       if (el.closest('[role="button"]') || el.closest('time')) continue;
+      if (usingFallback && el.querySelector('div, span, p')) continue;
       // Khối nằm trong/chứa link tới bài KHÁC id = thẻ trích dẫn (quoted):
       // dạng div > a[href=/post/Q99] mà link của chính bài nằm ở tổ tiên
       // nên vòng kiểm tra tổ tiên không phát hiện được.
@@ -189,17 +220,24 @@ function extractPosts(doc) {
         if (isInside(el, nameLink)) continue;
       }
       // Nằm trong đơn vị con khác?
-      const nestedUnit = el.closest('div[tabindex="0"]');
+      const nestedUnit = unitOf(el);
       if (nestedUnit && nestedUnit !== unit) continue;
-      // Thuộc bài trích dẫn?
+      // Thuộc bài trích dẫn (quoted)? Một khối bị coi là trích dẫn khi
+      // một tổ tiên (tới khung bài) chứa link /post/ tới bài KHÁC id mà
+      // link đó thuộc chính khung này — link của đơn vị con lồng nhau
+      // thì không tính (khối của đơn vị con đã bị loại ở bước trên).
       let quoted = false;
       let anc = el.parentElement;
       while (anc && anc !== unit) {
-        const q = anc.querySelector('a[href*="/post/"]');
-        if (q) {
+        const qs = anc.querySelectorAll('a[href*="/post/"]');
+        for (const q of qs) {
           const qp = postIdFromHref(q.getAttribute('href') || '');
-          if (qp && qp.id !== parsed.id) { quoted = true; break; }
+          if (qp && qp.id !== parsed.id) {
+            const qUnit = unitOf(q);
+            if (!qUnit || qUnit === unit) { quoted = true; break; }
+          }
         }
+        if (quoted) break;
         anc = anc.parentElement;
       }
       if (quoted) continue;
@@ -230,7 +268,7 @@ function extractPosts(doc) {
     const unlabeled = [];
     const btns = Array.from(unit.querySelectorAll('div[role="button"], button'));
     for (const b of btns) {
-      const nestedUnit = b.closest('div[tabindex="0"]');
+      const nestedUnit = unitOf(b);
       if (nestedUnit && nestedUnit !== unit) continue;
       // aria-label có thể nằm ở chính nút hoặc ở svg con trong nút.
       const childAria = Array.from(b.querySelectorAll('[aria-label]')).map((x) => x.getAttribute('aria-label') || '').join(' ');
@@ -253,7 +291,7 @@ function extractPosts(doc) {
     }
     let likes = stats.likes, replies = stats.replies, reposts = stats.reposts, shares = stats.shares;
     const verified = Array.from(unit.querySelectorAll('svg, img')).some((el) => {
-      const u = el.closest('div[tabindex="0"]');
+      const u = unitOf(el);
       if (u && u !== unit) return false;
       const lab = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('alt') || '')).toLowerCase();
       return lab.includes('verified') || lab.includes('xác minh');
@@ -261,7 +299,9 @@ function extractPosts(doc) {
 
     const rec = {
       id: parsed.id,
-      url: 'https://www.threads.com/@' + username + '/post/' + parsed.id,
+      url: username === 'unknown'
+        ? 'https://www.threads.com/post/' + parsed.id
+        : 'https://www.threads.com/@' + username + '/post/' + parsed.id,
       author: {
         username,
         displayName,
@@ -287,7 +327,7 @@ function extractPosts(doc) {
     let depth = 0;
     let parentId = null;
     while (anc) {
-      const ancUnit = anc.closest ? anc.closest('div[tabindex="0"]') : null;
+      const ancUnit = anc.closest ? unitOf(anc) : null;
       if (!ancUnit || ancUnit === rec._unit) break;
       const ancLink = ancUnit.querySelector('a[href*="/post/"]');
       const ancParsed = ancLink ? postIdFromHref(ancLink.getAttribute('href') || '') : null;

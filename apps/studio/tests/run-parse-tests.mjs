@@ -1,5 +1,5 @@
 /** Chạy: node tests/run-parse-tests.mjs (cần jsdom: xem tests/README.md)
- * 50 assertion, chia nhóm A–F. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
+ * 55 assertion, chia nhóm A–G. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -82,6 +82,14 @@ check('F04', 'verified nhận diện được', f.find((p) => p.id === 'VERIF04'
 check('F05', '"10,800" = 10800, "1,000" = 1000', (() => { const v = f.find((p) => p.id === 'VERIF04'); return v.stats.likes === 10800 && v.stats.replies === 1000; })(), f.find((p) => p.id === 'VERIF04')?.stats);
 check('F06', 'avatarUrl lấy được', f.every((p) => (p.author.avatarUrl || '').includes('cdn.example')), f.map((p) => p.author.avatarUrl));
 check('F07', 'group edge: 2 chuỗi độc lập', groupIntoChains(f).chains.length === 2, groupIntoChains(f).chains.length);
+
+// G: fixture DOM mới <article>, không dir="auto", link rút gọn (5 ca)
+const g = extractPosts(load('thread-article.html'));
+check('G01', 'đủ 4 bài, đúng thứ tự trang', eq(g.map((p) => p.id), ['ART001', 'REP002', 'REP003', 'ONLY99']), g.map((p) => p.id));
+check('G02', 'bài gốc lấy được chữ từ span thường, không lẫn lượt xem', g[0].content === 'vì tiếc 100k mà t phải như này' && g[0].stats.likes === 43300, [g[0].content, g[0].stats]);
+check('G03', 'reply lồng 2 tầng: REP003 cha là REP002, sâu 1; bài gốc không lẫn reply', g[2].parentId === 'REP002' && g[2].depth === 1 && !g[0].content.includes('Trả lời lồng') && g[1].content === 'Trả lời lồng trong khung cha.', g.map((p) => [p.id, p.parentId, p.depth, p.content]));
+check('G04', 'link /post/<id> suy username từ link hồ sơ, lấy chữ từ <p>', (() => { const o = g.find((p) => p.id === 'ONLY99'); return o.author.username === 'solo_user' && o.content === 'Nội dung trong thẻ p, link rút gọn.'; })(), g.find((p) => p.id === 'ONLY99')?.author);
+check('G05', 'group article: 2 chuỗi, REP003 gắn đúng chuỗi REP002', (() => { const gr = groupIntoChains(g); return gr.chains.length === 2 && gr.chains[0].root.id === 'REP002' && gr.chains[0].replies.length === 1 && gr.chains[0].replies[0].id === 'REP003'; })(), groupIntoChains(g).chains.map((c) => [c.root.id, c.replies.map((r) => r.id)]));
 
 console.log(`\n${pass}/${pass + fail} ca PASS (${cases.filter((c) => c.ok).length} ok, ${fail} fail)`);
 process.exit(fail ? 1 : 0);
