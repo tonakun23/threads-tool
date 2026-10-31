@@ -347,17 +347,21 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
                 [str(py), str(HERE / "tts.py"), "--text", text, "--voice", voice,
                  "--rate-percent", str(rate), "--out", str(out)],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                encoding="utf-8", errors="replace", timeout=75,
+                encoding="utf-8", errors="replace", timeout=120,
                 env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8:replace"})
         except subprocess.TimeoutExpired:
-            # TTS treo (mạng tới Edge TTS kẹt) thì thua nhanh sau 75 giây,
+            # TTS treo (mạng tới Edge TTS kẹt) thì thua nhanh sau 120 giây,
             # khỏi treo cả job render ở đoạn đầu — lỗi Tony gặp 31/10.
-            print(f"TTS timeout ({py}, 75s): Edge TTS không trả lời, thử tiếp...", flush=True)
+            print(f"TTS timeout ({py}, 120s): giọng đọc không trả lời, thử tiếp...", flush=True)
             continue
         if r.returncode == 0 and out.exists() and out.stat().st_size > 1000:
             dur = ffprobe_duration(out)
             if dur > 0:
-                print(f"TTS ok ({voice}, {dur:.1f}s): {text[:40]}", flush=True)
+                engine = ""
+                for line in (r.stdout or "").strip().split("\n"):
+                    if line.startswith("TTS engine:"):
+                        engine = line.split(":", 1)[1].strip()
+                print(f"TTS ok ({voice}, {engine or 'edge-tts'}, {dur:.1f}s): {text[:40]}", flush=True)
                 return dur
         tail = (r.stdout or "").strip().split("\n")[-1][:200]
         print(f"TTS fallback ({py}, exit {r.returncode}): {tail}", flush=True)

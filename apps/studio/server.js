@@ -250,21 +250,23 @@ const server = createServer(async (req, res) => {
         }
       } catch { /* bỏ qua */ }
       const child = spawn(py, [join(ROOT, 'tts.py'), '--text', text, '--voice', voice, '--rate-percent', '20', '--out', outPath],
-        { timeout: 75000, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8:replace' } });
-      let err = '';
+        { timeout: 120000, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8:replace' } });
+      let err = '', ttsOut = '';
+      child.stdout.on('data', (d) => { ttsOut += d; });
       child.stderr.on('data', (d) => { err += d; });
       child.on('close', (code) => {
         if (code !== 0 || !existsSync(outPath) || statSync(outPath).size <= 1000) {
-          const msg = err.trim().split('\n').filter(Boolean).slice(-1)[0]?.slice(0, 300)
+          const msg = err.trim().split('\n').filter(Boolean).slice(-1)[0]?.slice(0, 500)
             || `tts.py thoát mã ${code}, không tạo được file giọng đọc.`;
           send(res, 200, { ok: false, error: msg, voice }); return;
         }
+        const engine = (ttsOut.match(/TTS engine: (\S+)/) || [])[1] || 'edge-tts';
         const probe = spawn('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', outPath], { timeout: 10000 });
         let probeOut = '';
         probe.stdout.on('data', (d) => { probeOut += d; });
         probe.on('close', () => {
           const seconds = parseFloat(probeOut.trim()) || 0;
-          send(res, 200, { ok: true, seconds: Math.round(seconds * 10) / 10, voice, audioUrl: `/tts-test/${name}` });
+          send(res, 200, { ok: true, seconds: Math.round(seconds * 10) / 10, voice, engine, audioUrl: `/tts-test/${name}` });
         });
       });
       return;

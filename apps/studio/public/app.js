@@ -406,13 +406,14 @@ $('#btnDemo').addEventListener('click', () => doScrape('demo'));
 $('#btnTtsTest')?.addEventListener('click', async () => {
   const btn = $('#btnTtsTest'), st = $('#ttsTestStatus'), audio = $('#ttsTestAudio');
   btn.disabled = true;
-  st.textContent = 'Đang thử giọng đọc… (tối đa ~75 giây, cần mạng tới Edge TTS)';
+  st.textContent = 'Đang thử giọng đọc… (tối đa ~2 phút, cần mạng tới Edge TTS hoặc Google)';
   audio.hidden = true; audio.removeAttribute('src'); audio.load();
   try {
     const r = await fetch('/api/tts-test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ voice: $('#voice').value }) });
     const j = await r.json();
     if (j.ok) {
-      st.textContent = `✅ Giọng đọc chạy được: file ${j.seconds} giây — bấm play để nghe thử. Nếu video xuất ra vẫn im lặng thì gửi mình dòng này + đuôi render.log.`;
+      const engineLabel = j.engine === 'gtts' ? 'giọng Google dự phòng (tiếng Việt, không phải Hoài My/Nam Minh — muốn giọng Hoài My thì cài lại Edge theo lỗi ở dưới, hoặc đợi Microsoft sửa máy chủ cũ)' : j.engine === 'edge-tts-new' ? 'Edge qua máy chủ mới (đúng giọng đã chọn)' : 'Edge (đúng giọng đã chọn)';
+      st.textContent = `✅ Giọng đọc chạy được qua ${engineLabel}: file ${j.seconds} giây — bấm play để nghe thử. Video xuất ra sẽ dùng đúng đường giọng này.`;
       audio.src = j.audioUrl; audio.hidden = false; audio.load();
     } else {
       st.textContent = `❌ Giọng đọc không chạy được trên máy này: ${j.error} — video xuất ra sẽ im lặng (chỉ có hình). Gửi mình dòng này để sửa tiếp.`;
