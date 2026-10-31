@@ -173,7 +173,16 @@ const server = createServer(async (req, res) => {
       child.stdout.on('data', (d) => { out += d; });
       child.stderr.on('data', (d) => { err += d; });
       child.on('close', (code) => {
-        if (code !== 0) { send(res, 502, { error: (err.trim().split('\n').pop() || 'Cào live thất bại. Thử chế độ Demo hoặc dán JSON dataset của toolkit.') }); return; }
+        if (code !== 0) {
+          // Lấy dòng lỗi có nghĩa, bỏ dòng stack trace ("at ...") và
+          // dòng "Node.js v..." ở cuối — trước đây chỉ lấy dòng cuối
+          // nên giao diện toàn hiện "Node.js v24.19.0", che mất nguyên nhân.
+          const meaningful = err.trim().split('\n').map((l) => l.trim())
+            .filter((l) => l && !/^node\.js v\d/i.test(l) && !/^at\s/i.test(l));
+          const msg = meaningful.slice(-2).join(' ').slice(0, 400);
+          send(res, 502, { error: (msg || 'Cào live thất bại. Thử chế độ Demo hoặc dán JSON dataset của toolkit.') });
+          return;
+        }
         try { const data = JSON.parse(out); data.comments = data.comments.slice(0, maxComments); send(res, 200, data); }
         catch { send(res, 502, { error: 'Scraper trả về dữ liệu không đọc được.' }); }
       });

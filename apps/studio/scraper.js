@@ -31,8 +31,14 @@ function normalizeUrl(raw) {
   return u.replace('threads.net', 'threads.com');
 }
 
-const url = normalizeUrl(process.argv[2] || '');
-const maxComments = Math.max(1, Math.min(50, parseInt(process.argv[3] || '20', 10) || 20));
+let url, maxComments;
+try {
+  url = normalizeUrl(process.argv[2] || '');
+  maxComments = Math.max(1, Math.min(50, parseInt(process.argv[3] || '20', 10) || 20));
+} catch (e) {
+  console.error('Lỗi cào live: ' + (e?.message || e));
+  process.exit(1);
+}
 
 let chromium;
 try {
@@ -42,8 +48,10 @@ try {
   process.exit(1);
 }
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu'] });
+let browser;
 try {
+  browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu'] });
+  try {
   const context = await browser.newContext({
     viewport: { width: 900, height: 1400 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
@@ -81,6 +89,18 @@ try {
     .filter((c) => c.id !== post.id)
     .slice(0, maxComments);
   console.log(JSON.stringify({ post, comments, source: 'live', scrapedUrl: page.url() }));
-} finally {
-  await browser.close();
+  } finally {
+    await browser.close();
+  }
+} catch (e) {
+  // Mọi lỗi (Chromium chưa tải, login wall, timeout, Threads đổi giao
+  // diện...) đều in 1 dòng sạch ra stderr + exit 1. Trước đây lỗi văng
+  // ra dạng stack trace, server chỉ lấy dòng cuối là "Node.js v24.19.0"
+  // nên giao diện hiện đúng dòng đó, che mất nguyên nhân thật.
+  const msg = e?.message || String(e);
+  const hint = /executable|browser.*(not found|has been closed)|playwright install|Chromium/i.test(msg)
+    ? ' Chưa tải Chromium. Chạy trong apps/studio: npx playwright install chromium'
+    : '';
+  console.error('Lỗi cào live: ' + msg + hint);
+  process.exit(1);
 }
