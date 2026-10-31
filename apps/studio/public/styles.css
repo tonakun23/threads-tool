@@ -13,7 +13,8 @@ main{max-width:1400px;margin:0 auto;padding:12px 16px 40px}
 #previewEmbedShots img{display:block;width:100%;border-radius:10px;background:#fff;margin-bottom:8px}
 #previewEmbedShots img:last-child{margin-bottom:0}
 .preview-card-head{display:flex;gap:10px;align-items:center;margin-bottom:8px}
-.preview-avatar{width:42px;height:42px;min-width:42px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+.preview-avatar{position:relative;overflow:hidden;width:42px;height:42px;min-width:42px;border-radius:50%;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+.preview-avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .preview-names{display:flex;flex-direction:row;gap:8px;align-items:baseline;line-height:1.25;min-width:0}.preview-names strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.preview-names small{color:#a3a3a3;white-space:nowrap}
 .preview-content{margin:0;white-space:pre-wrap;word-break:break-word;font-size:15px}
 .preview-stats{margin:10px 0 0;color:#d4d4d4;font-size:13px}

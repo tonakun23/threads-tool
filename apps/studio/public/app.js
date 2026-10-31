@@ -97,6 +97,73 @@ function groupCommentsIntoChains(comments) {
 // Thẻ embed thật đang hiện trong khung xem trước (nếu có): giữ theo
 // key của đoạn, đổi đoạn thì quay về bản mô phỏng.
 const embedShotView = { key: null, shots: null };
+// Lý do lần dựng thẻ thật gần nhất thất bại (hiện trong previewInfo).
+let lastShotError = null;
+// Cache thẻ thật theo đoạn + nội dung, để chuyển đoạn qua lại không
+// phải dựng lại, sửa chữ mới dựng lại.
+const realShotCache = new Map();
+let realShotSeq = 0;
+let shotRefreshTimer = null;
+
+function currentCardStyle() { return $('#cardStyle') ? $('#cardStyle').value : 'replica'; }
+function shotHash(seg) {
+  return JSON.stringify(segItems(seg).map((it) => [it.author?.username, it.author?.avatarUrl, it.content, it.timeLabel, it.stats, it.depth]));
+}
+async function ensureRealShot(seg, opts = {}) {
+  if (!seg || currentCardStyle() === 'hand') return;
+  const hash = shotHash(seg);
+  const cached = realShotCache.get(seg.key);
+  if (!opts.force && cached && cached.hash === hash) {
+    if (embedShotView.key !== seg.key || !embedShotView.shots) {
+      embedShotView.key = seg.key; embedShotView.shots = cached.shots; renderPreview();
+    }
+    return;
+  }
+  const seq = ++realShotSeq;
+  $('#previewInfo').textContent = 'Đang dựng thẻ thật…';
+  try {
+    let shots;
+    if (currentCardStyle() === 'embed') {
+      const urls = segItems(seg).map((it) => it.url || '').filter((u) => u.includes('/post/'));
+      if (!urls.length) {
+        $('#previewInfo').textContent = 'Đoạn này không có link Threads (thêm tay) nên không chụp thẻ embed được. Trong video, đoạn này dùng thẻ vẽ tay.';
+        return;
+      }
+      const r = await fetch('/api/embed-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Không chụp được.');
+      shots = (j.shots || []).filter((s) => s.ok);
+      if (!shots.length) throw new Error((j.shots || [])[0]?.error || 'Không chụp được thẻ embed.');
+    } else {
+      const items = segItems(seg).map((it) => ({
+        author: it.author, content: it.content,
+        timeLabel: formatTimeLabel(it.timestamp, it.timeLabel), stats: it.stats, depth: it.depth || 0,
+      }));
+      const r = await fetch('/api/card-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Không dựng được thẻ.');
+      if (!j.pngUrl) throw new Error('Không dựng được thẻ.');
+      shots = [{ pngUrl: j.pngUrl }];
+    }
+    if (seq !== realShotSeq) return; // đã có yêu cầu mới hơn
+    lastShotError = null;
+    realShotCache.set(seg.key, { hash, shots });
+    const vis = visibleSegments();
+    if (vis[preview.index] === seg) { embedShotView.key = seg.key; embedShotView.shots = shots; renderPreview(); }
+  } catch (e) {
+    if (seq !== realShotSeq) return;
+    lastShotError = { segKey: seg.key, msg: e.message };
+    renderPreview();
+  }
+}
+function scheduleShotRefresh(seg) {
+  if (currentCardStyle() === 'hand') return;
+  clearTimeout(shotRefreshTimer);
+  shotRefreshTimer = setTimeout(() => {
+    const vis = visibleSegments();
+    if (vis[preview.index] === seg) ensureRealShot(seg);
+  }, 1200);
+}
 
 function renderPreview() {
   const segs = visibleSegments();
@@ -136,16 +203,16 @@ function renderPreview() {
   const items = segItems(seg);
   const shotsBox = $('#previewEmbedShots');
   if (embedShotView.shots) {
-    // Hiện đúng thẻ embed thật đã chụp, thay cho bản mô phỏng.
+    // Hiện đúng thẻ thật đã dựng, thay cho bản mô phỏng.
     $('#previewCardItems').innerHTML = '';
     shotsBox.hidden = false;
-    shotsBox.innerHTML = embedShotView.shots.map((s) => `<img src="${esc(s.pngUrl)}" alt="Thẻ embed Threads">`).join('');
+    shotsBox.innerHTML = embedShotView.shots.map((s) => `<img src="${esc(s.pngUrl)}" alt="Thẻ Threads">`).join('');
   } else {
     shotsBox.hidden = true; shotsBox.innerHTML = '';
     $('#previewCardItems').innerHTML = items.map((it, i) => `
     <div class="preview-item ${i > 0 ? 'reply' : ''}">
       <div class="preview-card-head">
-        <span class="preview-avatar" style="background:${avatarColor(it.author.username)}">${esc(avatarLetter(it.author.username))}</span>
+        <span class="preview-avatar" style="background:${avatarColor(it.author.username)}">${it.author.avatarUrl ? `<img src="${esc(it.author.avatarUrl)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}${esc(avatarLetter(it.author.username))}</span>
         <span class="preview-names"><strong>@${esc(it.author.username)}</strong><small>${esc(formatTimeLabel(it.timestamp, it.timeLabel))}</small></span>
       </div>
       <p class="preview-content">${esc(it.content)}</p>
@@ -160,6 +227,7 @@ function renderPreview() {
   const total = durs.reduce((a, b) => a + b, 0);
   $('#previewInfo').textContent = `Đoạn này khoảng ${durs[preview.index].toFixed(1)} giây (ước lượng theo giọng đọc). Cả video khoảng ${total.toFixed(1)} giây, chưa tính thời gian render thật.`;
   if (embedShotView.shots) $('#previewInfo').textContent += ' Đang hiện thẻ thật giống Threads — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ này.';
+  else if (lastShotError && lastShotError.segKey === seg.key) $('#previewInfo').textContent += ' Không dựng được thẻ thật: ' + lastShotError.msg + ' — đang hiện bản mô phỏng.';
   // Meme của đoạn đang xem.
   const meme = seg.memeId ? state.memes.find((m) => m.id === seg.memeId) : null;
   const memeKey = meme ? meme.id : '';
@@ -183,6 +251,7 @@ function setPreviewIndex(i) {
   if (!segs.length) return;
   preview.index = Math.max(0, Math.min(segs.length - 1, i));
   renderPreview();
+  ensureRealShot(segs[preview.index]);
 }
 function stopPreviewPlay() {
   preview.playing = false;
@@ -241,7 +310,7 @@ function renderSegments() {
       <label>Meme chèn trong đoạn này:
         <select class="seg-meme"><option value="">— Không chèn meme —</option>${state.memes.map((m) => `<option value="${m.id}" ${seg.memeId === m.id ? 'selected' : ''}>${esc(m.name)} (${m.kind})</option>`).join('')}</select>
       </label>`;
-    div.querySelectorAll('.seg-content').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].content = e.target.value; renderPreview(); }));
+    div.querySelectorAll('.seg-content').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].content = e.target.value; renderPreview(); scheduleShotRefresh(seg); }));
     div.querySelectorAll('.seg-tts').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].ttsText = e.target.value; renderPreview(); }));
     div.querySelector('.seg-include').addEventListener('change', (e) => { seg.include = e.target.checked; renderPreview(); });
     div.querySelector('.seg-meme').addEventListener('change', (e) => { seg.memeId = e.target.value; renderPreview(); });
@@ -261,6 +330,10 @@ function loadData(data) {
   const chains = groupCommentsIntoChains(data.comments || []);
   for (const ch of chains) state.segments.push(makeChainSegment(ch));
   renderSegments();
+  // Cào xong thì tự dựng thẻ thật cho đoạn đầu, khỏi phải bấm nút.
+  preview.index = 0;
+  const vis = visibleSegments();
+  if (vis.length) ensureRealShot(vis[0]);
   status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.`);
 }
 
@@ -280,44 +353,24 @@ async function showRealShots() {
   const segs = visibleSegments();
   const seg = segs[preview.index];
   if (!seg) return;
-  const style = $('#cardStyle') ? $('#cardStyle').value : 'replica';
-  const btn = $('#btnEmbedPreview');
-  if (style === 'hand') {
+  if (currentCardStyle() === 'hand') {
     $('#previewInfo').textContent = 'Đang chọn kiểu thẻ Vẽ tay — khung mô phỏng này chính là thẻ sẽ dùng trong video (avatar chữ cái, số liệu đã cào).';
     return;
   }
+  const btn = $('#btnEmbedPreview');
   btn.disabled = true; btn.textContent = '⏳ Đang dựng thẻ thật…';
-  try {
-    let shots;
-    if (style === 'embed') {
-      const urls = segItems(seg).map((it) => it.url || '').filter((u) => u.includes('/post/'));
-      if (!urls.length) {
-        $('#previewInfo').textContent = 'Đoạn này không có link Threads (thêm tay) nên không chụp thẻ embed được. Trong video, đoạn này dùng thẻ vẽ tay.';
-        return;
-      }
-      const r = await fetch('/api/embed-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Không chụp được.');
-      shots = (j.shots || []).filter((s) => s.ok);
-      if (!shots.length) throw new Error((j.shots || [])[0]?.error || 'Không chụp được thẻ embed.');
-    } else {
-      const items = segItems(seg).map((it) => ({
-        author: it.author, content: it.content,
-        timeLabel: formatTimeLabel(it.timestamp, it.timeLabel), stats: it.stats, depth: it.depth || 0,
-      }));
-      const r = await fetch('/api/card-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Không dựng được thẻ.');
-      if (!j.pngUrl) throw new Error('Không dựng được thẻ.');
-      shots = [{ pngUrl: j.pngUrl }];
-    }
-    embedShotView.key = seg.key; embedShotView.shots = shots;
-    renderPreview();
-  } catch (e) {
-    $('#previewInfo').textContent = 'Không hiện được thẻ thật: ' + e.message + ' — Vẫn hiện bản mô phỏng; video xuất ra sẽ dùng thẻ vẽ tay nếu dựng lỗi.';
-  } finally { btn.disabled = false; btn.textContent = '📷 Xem thẻ thật'; }
+  try { await ensureRealShot(seg, { force: true }); }
+  finally { btn.disabled = false; btn.textContent = '📷 Xem thẻ thật'; }
 }
-$('#btnEmbedPreview').addEventListener('click', showRealShots);
+$('#btnEmbedPreview')?.addEventListener('click', showRealShots);
+$('#cardStyle')?.addEventListener('change', () => {
+  // Đổi kiểu thẻ thì thẻ thật cũ không còn đúng nữa: dựng lại đoạn đang xem.
+  realShotCache.clear(); lastShotError = null;
+  embedShotView.key = null; embedShotView.shots = null;
+  renderPreview();
+  const vis = visibleSegments();
+  if (vis[preview.index]) ensureRealShot(vis[preview.index]);
+});
 $('#btnPrevSeg').addEventListener('click', () => { stopPreviewPlay(); setPreviewIndex(preview.index - 1); });
 $('#btnNextSeg').addEventListener('click', () => { stopPreviewPlay(); setPreviewIndex(preview.index + 1); });
 $('#btnPlayPreview').addEventListener('click', togglePreviewPlay);
