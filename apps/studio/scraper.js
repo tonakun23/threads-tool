@@ -57,9 +57,25 @@ async function writeScrapeDiagnostics(page, reason) {
           chain,
         });
       }
+      // Mẫu nút thống kê trong khung bài đầu tiên: để sửa lỗi stats
+      // toàn 0 — cần biết nút like/reply là thẻ gì, số nằm ở đâu.
+      let statButtons = [];
+      const probe = document.querySelector('[data-pressable-container]');
+      if (probe) {
+        statButtons = Array.from(probe.querySelectorAll('div[role="button"], button, a, svg'))
+          .map((b) => ({
+            tag: b.tagName,
+            role: b.getAttribute ? b.getAttribute('role') : null,
+            aria: b.getAttribute ? (b.getAttribute('aria-label') || '') : '',
+            text: (b.textContent || '').trim().slice(0, 40),
+          }))
+          .filter((b) => b.aria || /\d/.test(b.text))
+          .slice(0, 14);
+      }
       return {
         url: location.href,
         title: document.title,
+        statButtons,
         counts: {
           postLinks: links.length,
           tabindexUnits: document.querySelectorAll('div[tabindex="0"]').length,

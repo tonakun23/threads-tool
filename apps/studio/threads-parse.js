@@ -201,7 +201,7 @@ function extractPosts(doc) {
       const u = unitOf(im);
       return !u || u === unit;
     });
-    const avatarImg = unitImgs.find((im) => /profile|avatar|picture/i.test(im.getAttribute('alt') || '')) || unitImgs[0];
+    const avatarImg = unitImgs.find((im) => /profile|avatar|picture|đại diện/i.test(im.getAttribute('alt') || '')) || unitImgs[0];
     const timeEl = unit.querySelector('time');
     const timeRaw = timeEl ? (timeEl.getAttribute('datetime') || timeEl.textContent || '') : '';
 

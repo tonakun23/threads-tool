@@ -280,13 +280,17 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
     rate = int(settings.get("ratePercent", 20))
     if not text:
         text = "(không có nội dung đọc)"
-    # Thử edge-tts bằng python hiện tại, rồi python của .venv trong studio.
+    # Thử python của .venv trong studio TRƯỚC (nơi đã cài edge-tts),
+    # rồi mới tới python đang chạy render.py. Ghi rõ từng lần thử để
+    # biết lỗi là "chưa cài edge-tts" hay "không nối được Edge TTS".
     # Windows: .venv\Scripts\python.exe ; Linux/macOS: .venv/bin/python
-    candidates = [sys.executable]
+    candidates = []
     venv_py = (HERE / ".venv" / "Scripts" / "python.exe") if os.name == "nt" \
         else (HERE / ".venv" / "bin" / "python")
     if venv_py.exists():
         candidates.append(str(venv_py))
+    if sys.executable not in candidates:
+        candidates.append(sys.executable)
     for py in candidates:
         r = subprocess.run(
             [str(py), str(HERE / "tts.py"), "--text", text, "--voice", voice,
@@ -299,7 +303,8 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
             if dur > 0:
                 print(f"TTS ok ({voice}, {dur:.1f}s): {text[:40]}", flush=True)
                 return dur
-        print(f"TTS fallback, thử tiếp: {r.stdout[-300:]}", flush=True)
+        tail = (r.stdout or "").strip().split("\n")[-1][:200]
+        print(f"TTS fallback ({py}, exit {r.returncode}): {tail}", flush=True)
     # Fallback: file im lặng, thời lượng ước lượng theo độ dài chữ.
     dur = estimate_duration(text, rate)
     run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
