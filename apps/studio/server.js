@@ -219,7 +219,9 @@ const server = createServer(async (req, res) => {
       jobs.set(id, job);
       const logPath = join(jobDir, 'render.log');
       const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
-      const child = spawn(PYTHON, [join(ROOT, 'render.py'), '--project', projectPath, '--out', outPath, '--workdir', join(jobDir, 'work')], { cwd: ROOT });
+      // Ép Python con dùng UTF-8: Windows mặc định cp1252, log/render có
+      // tiếng Việt sẽ crash UnicodeEncodeError 'charmap' (chữ ễ...).
+      const child = spawn(PYTHON, [join(ROOT, 'render.py'), '--project', projectPath, '--out', outPath, '--workdir', join(jobDir, 'work')], { cwd: ROOT, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8:replace' } });
       let log = '';
       child.stdout.on('data', (d) => { log += d; writeFileSync(logPath, log); job.progress = d.toString().trim().split('\n').pop(); });
       child.stderr.on('data', (d) => { log += d; writeFileSync(logPath, log); });

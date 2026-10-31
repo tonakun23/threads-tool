@@ -21,6 +21,13 @@ async def _speak(text: str, voice: str, rate: str, out: str) -> None:
 
 
 def main() -> int:
+    # Như render.py: Windows pipe mặc định cp1252, in lỗi có tiếng Việt sẽ
+    # crash UnicodeEncodeError. Ép UTF-8 trước khi làm gì khác.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # noqa: BLE001, S110
+            pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--text", required=True)
     ap.add_argument("--voice", default="vi-VN-HoaiMyNeural")

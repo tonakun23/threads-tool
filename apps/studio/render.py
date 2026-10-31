@@ -21,6 +21,16 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+# Windows mặc định stdout/stderr là cp1252 khi bị pipe: mọi print() có
+# tiếng Việt (thử, ước lượng, nội dung bình luận...) đều crash với
+# UnicodeEncodeError 'charmap'. Ép UTF-8 ngay từ đầu, khỏi phụ thuộc
+# locale của máy chạy. Server cũng ép thêm qua PYTHONUTF8/PYTHONIOENCODING.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # noqa: BLE001, S110 - stream đã đóng / không hỗ trợ
+        pass
+
 HERE = Path(__file__).resolve().parent
 W, H, FPS = 1080, 1920, 30
 CARD_W = 980
@@ -75,7 +85,8 @@ def make_watermark_png(text: str, out: Path) -> None:
 def run(cmd: list[str], cwd: Path | None = None) -> None:
     print("+", " ".join(str(c) for c in cmd), flush=True)
     r = subprocess.run(cmd, cwd=str(cwd) if cwd else None,
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                       encoding="utf-8", errors="replace")
     if r.returncode != 0:
         print(r.stdout[-4000:], file=sys.stderr)
         raise RuntimeError(f"ffmpeg/python failed ({r.returncode}): {cmd[0]}")
@@ -85,7 +96,7 @@ def ffprobe_duration(path: Path) -> float:
     r = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-        stdout=subprocess.PIPE, text=True)
+        stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     try:
         return float(r.stdout.strip())
     except ValueError:
@@ -208,7 +219,9 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
         r = subprocess.run(
             [str(py), str(HERE / "tts.py"), "--text", text, "--voice", voice,
              "--rate-percent", str(rate), "--out", str(out)],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            encoding="utf-8", errors="replace",
+            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8:replace"})
         if r.returncode == 0 and out.exists() and out.stat().st_size > 1000:
             dur = ffprobe_duration(out)
             if dur > 0:
@@ -325,7 +338,8 @@ def main() -> int:
     concat_mp4 = work / "concat.mp4"
     r = subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i",
                         str(concat_txt), "-c", "copy", str(concat_mp4)],
-                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                       encoding="utf-8", errors="replace")
     if r.returncode != 0 or not concat_mp4.exists():
         print("concat -c copy thất bại, nối lại bằng re-encode", flush=True)
         run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_txt),
