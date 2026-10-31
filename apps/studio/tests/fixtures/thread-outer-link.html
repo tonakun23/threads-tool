@@ -1,0 +1,35 @@
+<!DOCTYPE html><html><body>
+  <!-- Mô phỏng đúng file chẩn đoán DOM thật 31/10 (bài @eli2122):
+       1) link ?xmt= ngoài khung bài, trong wrapper có time + link —
+          bước lui dần của findUnit sẽ nhận wrapper làm khung và chiếm
+          id trước link thật nếu xử lý theo thứ tự trang;
+       2) hàng nút số liệu nằm trong div[tabindex="0"] bọc trong
+          (thanh công cụ) bên trong khung pressable — luật loại
+          "thuộc đơn vị con" cũ bỏ sạch số liệu dù khung là đúng.
+       Cả hai đều phải qua thì stats mới đúng. -->
+  <div>
+    <div class="wrap">
+      <a href="/@eli2122/post/MAIN01?xmt=ABC123"><time>23 giờ</time></a>
+      <div data-pressable-container="true" data-interactive-id="">
+        <a href="/@eli2122"><img src="https://cdn.example/avatar-e.jpg" alt="Ảnh đại diện của eli2122"></a>
+        <a href="/@eli2122/post/MAIN01"><time>23 giờ</time></a>
+        <div dir="auto">Nội dung bài gốc, có số liệu.</div>
+        <div tabindex="0" class="toolbar">
+          <div role="button">Thích<span>2,3K</span></div>
+          <div role="button">Bình luận<span>108</span></div>
+          <div role="button">Đăng lại<span>359</span></div>
+          <div role="button">Chia sẻ<span>1,7K</span></div>
+        </div>
+      </div>
+    </div>
+    <div data-pressable-container="true" data-interactive-id="">
+      <a href="/@gwangwonii"><img src="https://cdn.example/avatar-g.jpg" alt="Ảnh đại diện của gwangwonii"></a>
+      <a href="/@gwangwonii/post/REPLY02"><time>23 giờ</time></a>
+      <div dir="auto">Trả lời hay, có số riêng.</div>
+      <div role="button">Thích<span>16</span></div>
+      <div role="button">Bình luận<span>2</span></div>
+      <div role="button">Đăng lại<span>1</span></div>
+      <div role="button">Chia sẻ<span>14</span></div>
+    </div>
+  </div>
+</body></html>

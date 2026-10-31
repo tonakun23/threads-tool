@@ -164,6 +164,22 @@ function findUnit(link) {
   return null;
 }
 
+// Phần tử có thuộc khung của một bài KHÁC không? Chỉ tính là bài
+// khác khi khung tìm được thật sự trỏ tới một bài khác qua link
+// /post/ — khung bọc trong (thanh công cụ có tabindex, khung lồng
+// không có link bài) thì KHÔNG loại: trước đây mọi khung con đều bị
+// loại nên số liệu trong thanh công cụ bọc trong div[tabindex="0"]
+// bị bỏ sạch dù khung bài là đúng (lỗi stats 0, file chẩn đoán
+// 31/10: nút "Thích2,3K" nằm trong khung pressable nhưng vẫn 0).
+function belongsToOtherPost(el, unit, postId) {
+  const u = unitOf(el);
+  if (!u || u === unit) return false;
+  const link = u.querySelector('a[href*="/post/"]');
+  if (!link) return false;
+  const lp = postIdFromHref(link.getAttribute('href') || '');
+  return !!lp && lp.id !== postId;
+}
+
 // Quét các khối số trần đứng cạnh icon SVG trong một phạm vi (khung bài
 // hoặc khối anh em sau khung bài): trả về các giá trị theo thứ tự xuất
 // hiện — hàng số liệu của Threads là Thích, Bình luận, Đăng lại,
@@ -184,8 +200,7 @@ function collectBareStats(scopeEl, unit, postId) {
   };
   const values = [];
   for (const el of scopeEl.querySelectorAll('div, span, a, p')) {
-    const u = unitOf(el);
-    if (u && u !== unit) continue;
+    if (belongsToOtherPost(el, unit, postId)) continue;
     if (el.closest('div[role="button"], button')) continue;
     const t = (el.textContent || '').trim();
     if (!bareRe.test(t)) continue;
@@ -214,7 +229,18 @@ function extractPosts(doc) {
   const unitById = new Map();
   const idByUnit = new Map();
 
-  for (const link of links) {
+  // Link ngoài khung bài (dạng ?xmt= ở đầu trang) không được chiếm id
+  // trước link nằm trong khung: xử lý link trong khung thật trước,
+  // link ngoài khung chỉ tạo bản ghi khi id chưa có. Nếu link ngoài
+  // chiếm trước bằng khung wrapper thì mọi lượt quét số liệu bị loại
+  // (thuộc đơn vị con) → stats toàn 0 dù nút nằm ngay trong khung
+  // (file chẩn đoán 31/10: link ?xmt= không có khung trong 9 tổ tiên,
+  // link thật trong khung pressable có đủ nút "Thích2,3K"...).
+  const inUnit = [], outer = [];
+  for (const l of links) (unitOf(l) ? inUnit : outer).push(l);
+  const orderedLinks = [...inUnit, ...outer];
+
+  for (const link of orderedLinks) {
     const parsed = postIdFromHref(link.getAttribute('href') || '');
     if (!parsed || seen.has(parsed.id)) continue;
     // Đơn vị gần nhất: div[tabindex="0"] / article / role=article, lui
@@ -240,10 +266,7 @@ function extractPosts(doc) {
     if (!displayName || displayName === username) displayName = username;
     // Avatar: ưu tiên ảnh có alt profile/avatar/picture, không lấy ảnh
     // nội dung đứng trước avatar; loại ảnh của bình luận lồng nhau.
-    const unitImgs = Array.from(unit.querySelectorAll('img')).filter((im) => {
-      const u = unitOf(im);
-      return !u || u === unit;
-    });
+    const unitImgs = Array.from(unit.querySelectorAll('img')).filter((im) => !belongsToOtherPost(im, unit, parsed.id));
     const avatarImg = unitImgs.find((im) => /profile|avatar|picture|đại diện/i.test(im.getAttribute('alt') || '')) || unitImgs[0];
     const timeEl = unit.querySelector('time');
     const timeRaw = timeEl ? (timeEl.getAttribute('datetime') || timeEl.textContent || '') : '';
@@ -278,9 +301,8 @@ function extractPosts(doc) {
         // vẫn lấy nếu chính nó là khối nội dung; bỏ qua link tên tác giả.
         if (isInside(el, nameLink)) continue;
       }
-      // Nằm trong đơn vị con khác?
-      const nestedUnit = unitOf(el);
-      if (nestedUnit && nestedUnit !== unit) continue;
+      // Nằm trong đơn vị con khác (bài khác thật sự)?
+      if (belongsToOtherPost(el, unit, parsed.id)) continue;
       // Thuộc bài trích dẫn (quoted)? Chỉ xét THẺ CHA trực tiếp: nếu
       // thẻ cha chứa link /post/ tới bài KHÁC id đứng TRƯỚC khối chữ
       // này thì khối chữ thuộc thẻ trích dẫn. Không xét tổ tiên xa hơn:
@@ -333,8 +355,7 @@ function extractPosts(doc) {
     const unlabeled = [];
     const btns = Array.from(unit.querySelectorAll('div[role="button"], button'));
     for (const b of btns) {
-      const nestedUnit = unitOf(b);
-      if (nestedUnit && nestedUnit !== unit) continue;
+      if (belongsToOtherPost(b, unit, parsed.id)) continue;
       // aria-label có thể nằm ở chính nút hoặc ở svg con trong nút.
       const childAria = Array.from(b.querySelectorAll('[aria-label]')).map((x) => x.getAttribute('aria-label') || '').join(' ');
       const label = childAria + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '');
@@ -385,8 +406,7 @@ function extractPosts(doc) {
     }
     let likes = stats.likes, replies = stats.replies, reposts = stats.reposts, shares = stats.shares;
     const verified = Array.from(unit.querySelectorAll('svg, img')).some((el) => {
-      const u = unitOf(el);
-      if (u && u !== unit) return false;
+      if (belongsToOtherPost(el, unit, parsed.id)) return false;
       const lab = ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('alt') || '')).toLowerCase();
       return lab.includes('verified') || lab.includes('xác minh');
     });

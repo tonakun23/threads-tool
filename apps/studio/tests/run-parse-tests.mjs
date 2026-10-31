@@ -1,5 +1,5 @@
 /** Chạy: node tests/run-parse-tests.mjs (cần jsdom: xem tests/README.md)
- * 70 assertion, chia nhóm A–J. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
+ * 73 assertion, chia nhóm A–K. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -114,6 +114,12 @@ const jj = extractPosts(load('thread-stats-sibling.html'));
 check('J01', 'đủ 2 bài, đúng thứ tự trang', eq(jj.map((p) => p.id), ['MAIN01', 'REPLY02']), jj.map((p) => p.id));
 check('J02', 'stats bài gốc từ hàng anh em: 8,5K/79/923/1K', jj[0].stats.likes === 8500 && jj[0].stats.replies === 79 && jj[0].stats.reposts === 923 && jj[0].stats.shares === 1000, jj[0].stats);
 check('J03', 'stats bài sau riêng, không lẫn hàng anh em của bài trước', jj[1].stats.likes === 100 && jj[1].stats.replies === 2 && jj[1].stats.reposts === 0 && jj[1].stats.shares === 1, jj[1].stats);
+
+// K: fixture link ?xmt= ngoài khung + thanh công cụ bọc trong (3 ca)
+const kk = extractPosts(load('thread-outer-link.html'));
+check('K01', 'đủ 2 bài, đúng thứ tự, nội dung bài gốc không lẫn', kk.length === 2 && kk[0].id === 'MAIN01' && kk[1].id === 'REPLY02' && (kk[0].content || '').includes('Nội dung bài gốc'), kk.map((p) => [p.id, (p.content || '').slice(0, 30)]));
+check('K02', 'stats bài gốc từ nút trong thanh toolbar: 2,3K/108/359/1,7K', kk[0].stats.likes === 2300 && kk[0].stats.replies === 108 && kk[0].stats.reposts === 359 && kk[0].stats.shares === 1700, kk[0].stats);
+check('K03', 'stats bài trả lời riêng, không lẫn', kk[1].stats.likes === 16 && kk[1].stats.replies === 2 && kk[1].stats.reposts === 1 && kk[1].stats.shares === 14, kk[1].stats);
 
 console.log(`\n${pass}/${pass + fail} ca PASS (${cases.filter((c) => c.ok).length} ok, ${fail} fail)`);
 process.exit(fail ? 1 : 0);
