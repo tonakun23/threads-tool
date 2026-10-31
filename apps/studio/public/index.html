@@ -53,7 +53,7 @@
         <select id="voice"><option value="vi-VN-HoaiMyNeural">Hoài My (Nữ — Chuẩn)</option><option value="vi-VN-NamMinhNeural">Nam Minh (Nam — Chuẩn)</option></select>
       </label>
       <label>Thẻ bài trong video
-        <select id="cardStyle"><option value="embed">Embed Threads (chuẩn mẫu thật)</option><option value="hand">Vẽ tay (thẻ tối)</option></select>
+        <select id="cardStyle"><option value="replica">Giống Threads (bản tối, avatar thật)</option><option value="embed">Embed Threads chính thức (nền sáng)</option><option value="hand">Vẽ tay (thẻ tối cũ)</option></select>
       </label>
       <label>Tốc độ đọc: <span id="rateLabel">+20%</span>
         <input id="rate" type="range" min="-30" max="60" value="20" step="5">
@@ -87,6 +87,9 @@
 </div>
 <aside class="preview-panel card" aria-label="Xem trước video">
   <h2>Xem trước <span class="sub">9:16 · cập nhật ngay khi sửa</span></h2>
+  <div class="row preview-controls">
+    <button id="btnEmbedPreview" type="button">📷 Xem thẻ thật</button>
+  </div>
   <div class="preview-frame" id="previewFrame">
     <div class="preview-bg" id="previewBg"></div>
     <div class="preview-wm preview-wm-top" id="previewWmTop" hidden></div>
@@ -103,9 +106,6 @@
     <button id="btnPlayPreview" type="button" class="primary">▶ Phát thử</button>
     <button id="btnNextSeg" type="button">Đoạn sau ▶</button>
   </div>
-  <div class="row preview-controls">
-    <button id="btnEmbedPreview" type="button">📷 Xem thẻ embed thật</button>
-  </div>
   <label>Đoạn đang xem
     <select id="previewSegSelect"></select>
   </label>
@@ -113,7 +113,7 @@
   <label>Giọng đọc sẽ đọc (ô TTS của đoạn đang xem):
     <textarea id="previewTts" rows="3" readonly></textarea>
   </label>
-  <p class="hint">Khung trên là xem trước mô phỏng (thẻ tối vẽ lại) — chưa phải video thật và chưa có tiếng. Bấm “📷 Xem thẻ embed thật” để xem đúng thẻ Threads sẽ dùng trong video (nền sáng, avatar và số liệu thật), hoặc bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
+  <p class="hint">Khung trên là xem trước mô phỏng (thẻ tối vẽ lại) — chưa phải video thật và chưa có tiếng. Bấm “📷 Xem thẻ thật” ở đầu panel để xem đúng thẻ sẽ dùng trong video (kiểu Giống Threads: avatar thật, số liệu đã cào; kiểu Embed: thẻ chính thức nền sáng), hoặc bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
 </aside>
 </div>
 </main>

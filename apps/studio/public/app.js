@@ -67,13 +67,13 @@ async function uploadFile(file) {
 }
 
 function makeSegment(author, content, stats, timeLabel, kind, timestamp, url) {
-  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
+  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
 }
 function makeChainSegment(posts) {
   return {
     key: ++segCounter, kind: 'chain', memeId: '', include: true,
     items: posts.map((p) => ({
-      author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified },
+      author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified, avatarUrl: p.author?.avatarUrl || '' },
       content: p.content || '', ttsText: p.content || '',
       timeLabel: p.timeLabel || '', timestamp: p.timestamp || '', url: p.url || '',
       stats: p.stats || { likes: 0, replies: 0, reposts: 0, shares: 0 },
@@ -159,7 +159,7 @@ function renderPreview() {
   const durs = segs.map((s) => estimateDuration(segText(s), rate));
   const total = durs.reduce((a, b) => a + b, 0);
   $('#previewInfo').textContent = `Đoạn này khoảng ${durs[preview.index].toFixed(1)} giây (ước lượng theo giọng đọc). Cả video khoảng ${total.toFixed(1)} giây, chưa tính thời gian render thật.`;
-  if (embedShotView.shots) $('#previewInfo').textContent += ' Đang hiện thẻ embed thật từ Threads (nền sáng) — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ Embed.';
+  if (embedShotView.shots) $('#previewInfo').textContent += ' Đang hiện thẻ thật giống Threads — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ này.';
   // Meme của đoạn đang xem.
   const meme = seg.memeId ? state.memes.find((m) => m.id === seg.memeId) : null;
   const memeKey = meme ? meme.id : '';
@@ -276,30 +276,48 @@ async function doScrape(mode, extra) {
   finally { btn.disabled = false; }
 }
 
-async function showEmbedShots() {
+async function showRealShots() {
   const segs = visibleSegments();
   const seg = segs[preview.index];
   if (!seg) return;
-  const urls = segItems(seg).map((it) => it.url || '').filter((u) => u.includes('/post/'));
+  const style = $('#cardStyle') ? $('#cardStyle').value : 'replica';
   const btn = $('#btnEmbedPreview');
-  if (!urls.length) {
-    $('#previewInfo').textContent = 'Đoạn này không có link Threads (thêm tay) nên không chụp thẻ embed được. Trong video, đoạn này dùng thẻ vẽ tay.';
+  if (style === 'hand') {
+    $('#previewInfo').textContent = 'Đang chọn kiểu thẻ Vẽ tay — khung mô phỏng này chính là thẻ sẽ dùng trong video (avatar chữ cái, số liệu đã cào).';
     return;
   }
-  btn.disabled = true; btn.textContent = '⏳ Đang chụp thẻ thật…';
+  btn.disabled = true; btn.textContent = '⏳ Đang dựng thẻ thật…';
   try {
-    const r = await fetch('/api/embed-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || 'Không chụp được.');
-    const okShots = (j.shots || []).filter((s) => s.ok);
-    if (!okShots.length) throw new Error((j.shots || [])[0]?.error || 'Không chụp được thẻ embed.');
-    embedShotView.key = seg.key; embedShotView.shots = okShots;
+    let shots;
+    if (style === 'embed') {
+      const urls = segItems(seg).map((it) => it.url || '').filter((u) => u.includes('/post/'));
+      if (!urls.length) {
+        $('#previewInfo').textContent = 'Đoạn này không có link Threads (thêm tay) nên không chụp thẻ embed được. Trong video, đoạn này dùng thẻ vẽ tay.';
+        return;
+      }
+      const r = await fetch('/api/embed-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Không chụp được.');
+      shots = (j.shots || []).filter((s) => s.ok);
+      if (!shots.length) throw new Error((j.shots || [])[0]?.error || 'Không chụp được thẻ embed.');
+    } else {
+      const items = segItems(seg).map((it) => ({
+        author: it.author, content: it.content,
+        timeLabel: formatTimeLabel(it.timestamp, it.timeLabel), stats: it.stats, depth: it.depth || 0,
+      }));
+      const r = await fetch('/api/card-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Không dựng được thẻ.');
+      if (!j.pngUrl) throw new Error('Không dựng được thẻ.');
+      shots = [{ pngUrl: j.pngUrl }];
+    }
+    embedShotView.key = seg.key; embedShotView.shots = shots;
     renderPreview();
   } catch (e) {
-    $('#previewInfo').textContent = 'Không chụp được thẻ embed: ' + e.message + ' — Vẫn hiện bản mô phỏng; video xuất ra sẽ dùng thẻ vẽ tay nếu chụp lỗi.';
-  } finally { btn.disabled = false; btn.textContent = '📷 Xem thẻ embed thật'; }
+    $('#previewInfo').textContent = 'Không hiện được thẻ thật: ' + e.message + ' — Vẫn hiện bản mô phỏng; video xuất ra sẽ dùng thẻ vẽ tay nếu dựng lỗi.';
+  } finally { btn.disabled = false; btn.textContent = '📷 Xem thẻ thật'; }
 }
-$('#btnEmbedPreview').addEventListener('click', showEmbedShots);
+$('#btnEmbedPreview').addEventListener('click', showRealShots);
 $('#btnPrevSeg').addEventListener('click', () => { stopPreviewPlay(); setPreviewIndex(preview.index - 1); });
 $('#btnNextSeg').addEventListener('click', () => { stopPreviewPlay(); setPreviewIndex(preview.index + 1); });
 $('#btnPlayPreview').addEventListener('click', togglePreviewPlay);
@@ -368,7 +386,7 @@ $('#btnRender').addEventListener('click', async () => {
       settings: {
         watermark: $('#watermark').value, watermarkPosition: $('#watermarkPosition').value,
         voice: $('#voice').value, ratePercent: parseInt($('#rate').value, 10),
-        cardStyle: $('#cardStyle') ? $('#cardStyle').value : 'embed',
+        cardStyle: $('#cardStyle') ? $('#cardStyle').value : 'replica',
         bgmVolume: parseInt($('#bgmVolume').value, 10) / 100,
         bgVideoId: state.uploads.bgVideo || null, bgImageId: state.uploads.bgImage || null, bgmId: state.uploads.bgm || null,
       },

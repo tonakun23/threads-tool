@@ -17,6 +17,7 @@ const UPLOADS = join(ROOT, 'uploads');
 const OUT = join(ROOT, 'out');
 const JOBS = join(ROOT, 'jobs');
 const EMBED_PREVIEW = join(ROOT, 'embed-preview');
+const CARD_PREVIEW = join(ROOT, 'card-preview');
 for (const d of [UPLOADS, OUT, JOBS]) mkdirSync(d, { recursive: true });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.svg': 'image/svg+xml' };
@@ -120,6 +121,12 @@ const server = createServer(async (req, res) => {
       // Ảnh chụp thẻ embed đã lưu theo postId, lấy theo basename.
       const f = join(EMBED_PREVIEW, basename(decodeURIComponent(p)));
       if (!existsSync(f)) { send(res, 404, { error: 'Chưa có ảnh thẻ embed.' }); return; }
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      createReadStream(f).pipe(res); return;
+    }
+    if (req.method === 'GET' && p.startsWith('/card-preview/')) {
+      const f = join(CARD_PREVIEW, basename(decodeURIComponent(p)));
+      if (!existsSync(f)) { send(res, 404, { error: 'Chưa có ảnh thẻ.' }); return; }
       res.writeHead(200, { 'Content-Type': 'image/png' });
       createReadStream(f).pipe(res); return;
     }
@@ -246,6 +253,41 @@ const server = createServer(async (req, res) => {
       send(res, 200, { shots: results });
       return;
     }
+    if (req.method === 'POST' && p === '/api/card-shots') {
+      // Dựng thẻ replica giống Threads bản tối cho panel xem trước:
+      // {items:[...]} -> {pngUrl}. Dựng lỗi thì 502 + lý do rõ ràng.
+      const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+      const items = (Array.isArray(body.items) ? body.items : []).filter((it) => it && String(it.content || '').trim()).slice(0, 6);
+      if (!items.length) { send(res, 400, { error: 'Cần ít nhất 1 bình luận có nội dung.' }); return; }
+      mkdirSync(CARD_PREVIEW, { recursive: true });
+      const id = randomUUID().slice(0, 8);
+      const manifestPath = join(CARD_PREVIEW, 'manifest-' + id + '.json');
+      writeFileSync(manifestPath, JSON.stringify([{ id, items: items.map((it) => ({
+        author: { username: String(it.author?.username || 'unknown'), displayName: String(it.author?.displayName || it.author?.username || 'unknown'), isVerified: !!it.author?.isVerified, avatarUrl: String(it.author?.avatarUrl || '') },
+        content: String(it.content || ''), timeLabel: String(it.timeLabel || ''),
+        stats: { likes: Number(it.stats?.likes || 0), replies: Number(it.stats?.replies || 0), reposts: Number(it.stats?.reposts || 0), shares: Number(it.stats?.shares || 0) },
+        depth: Number(it.depth || 0),
+      })) }]), 'utf8');
+      try {
+        const shotJson = await new Promise((resolveShot, rejectShot) => {
+          const child = spawn(process.execPath, [join(ROOT, 'card-shot.js'), '--manifest', manifestPath, '--out-dir', CARD_PREVIEW], { timeout: 90000 });
+          let out = '', err = '';
+          child.stdout.on('data', (d) => { out += d; });
+          child.stderr.on('data', (d) => { err += d; });
+          child.on('error', rejectShot);
+          child.on('close', (code) => {
+            if (code !== 0) rejectShot(new Error(err.trim().split('\n').pop() || 'card-shot thất bại.'));
+            else resolveShot(out);
+          });
+        });
+        const shot = JSON.parse(shotJson)[0];
+        if (!shot?.ok) { send(res, 502, { error: shot?.error || 'Không dựng được thẻ.' }); return; }
+        send(res, 200, { pngUrl: '/card-preview/' + id + '.png' });
+      } catch (e) {
+        send(res, 502, { error: e?.message || String(e) });
+      }
+      return;
+    }
     if (req.method === 'POST' && p === '/api/render') {
       const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
       const segments = Array.isArray(body.segments) ? body.segments : [];
@@ -258,7 +300,7 @@ const server = createServer(async (req, res) => {
       };
       const cleanSegments = segments.map((s) => {
         const cleanItem = (it) => ({
-          author: { username: String(it.author?.username || 'unknown').slice(0, 40), displayName: String(it.author?.displayName || it.author?.username || 'unknown').slice(0, 60), isVerified: !!it.author?.isVerified },
+          author: { username: String(it.author?.username || 'unknown').slice(0, 40), displayName: String(it.author?.displayName || it.author?.username || 'unknown').slice(0, 60), isVerified: !!it.author?.isVerified, avatarUrl: String(it.author?.avatarUrl || '').slice(0, 500) },
           content: String(it.content || '').slice(0, 2000),
           ttsText: String(it.ttsText || it.content || '').slice(0, 2000),
           timeLabel: String(it.timeLabel || '').slice(0, 20),
@@ -286,7 +328,7 @@ const server = createServer(async (req, res) => {
           watermarkPosition: ['top', 'bottom', 'both'].includes(settings.watermarkPosition) ? settings.watermarkPosition : 'top',
           voice: String(settings.voice || 'vi-VN-HoaiMyNeural'),
           ratePercent: Math.max(-50, Math.min(100, parseInt(settings.ratePercent ?? 20, 10) || 20)),
-          cardStyle: settings.cardStyle === 'hand' ? 'hand' : 'embed',
+          cardStyle: ['embed', 'hand'].includes(settings.cardStyle) ? settings.cardStyle : 'replica',
           pauseSeconds: Math.max(0, Math.min(2, parseFloat(settings.pauseSeconds ?? 0.6) || 0.6)),
           bgmVolume: Math.max(0, Math.min(0.5, parseFloat(settings.bgmVolume ?? 0.12) || 0.12)),
           bgVideo: resolveUpload(settings.bgVideoId),
@@ -300,9 +342,46 @@ const server = createServer(async (req, res) => {
       const job = { id, status: 'running', progress: 'Đang dựng video…', videoUrl: null, error: null, createdAt: new Date().toISOString() };
       jobs.set(id, job);
       const logPath = join(jobDir, 'render.log');
-      // Ghi chú embed (nếu chụp lỗi) — giữ trong biến để không bị
+      // Ghi chú chụp/dựng thẻ (nếu lỗi) — giữ trong biến để không bị
       // render.log của render.py ghi đè mất (nó writeFileSync lại file).
-      let embedNotes = '';
+      let shotNotes = '';
+      // Thẻ replica: dựng lại giống giao diện Threads bản tối cho từng
+      // đoạn TRƯỚC khi render.py chạy. Dựng lỗi thì đoạn đó tự rơi về
+      // thẻ vẽ tay trong render.py (ghi chú vào render.log).
+      if (project.settings.cardStyle === 'replica') {
+        const cardDir = join(jobDir, 'cards');
+        mkdirSync(cardDir, { recursive: true });
+        const manifest = cleanSegments.map((s, i) => ({
+          id: 'card-' + i,
+          items: (s.items || [s]).map((it) => ({
+            author: it.author, content: it.content, timeLabel: it.timeLabel,
+            stats: it.stats, depth: it.depth || 0,
+          })),
+        }));
+        const manifestPath = join(jobDir, 'card-manifest.json');
+        writeFileSync(manifestPath, JSON.stringify(manifest), 'utf8');
+        try {
+          const shotJson = await new Promise((resolveShot, rejectShot) => {
+            const child = spawn(process.execPath, [join(ROOT, 'card-shot.js'), '--manifest', manifestPath, '--out-dir', cardDir], { timeout: 300000 });
+            let out = '', err = '';
+            child.stdout.on('data', (d) => { out += d; });
+            child.stderr.on('data', (d) => { err += d; });
+            child.on('error', rejectShot);
+            child.on('close', (code) => {
+              if (code !== 0) rejectShot(new Error(err.trim().split('\n').pop() || 'card-shot thất bại.'));
+              else resolveShot(out);
+            });
+          });
+          const results = JSON.parse(shotJson);
+          results.forEach((r, i) => {
+            if (r.ok) cleanSegments[i].cardPng = r.out;
+            else shotNotes += 'Thẻ replica: bỏ qua đoạn ' + (i + 1) + ' — ' + (r.error || 'không dựng được') + '\n';
+          });
+          writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf8');
+        } catch (e) {
+          shotNotes += 'Thẻ replica: dựng thẻ thất bại, dùng thẻ vẽ tay — ' + (e?.message || e) + '\n';
+        }
+      }
       // Thẻ embed: chụp thẻ Threads chính thức cho từng URL riêng biệt
       // TRƯỚC khi render.py chạy. Chụp lỗi (thiếu playwright, embed.js
       // không render) thì đoạn đó tự rơi về thẻ vẽ tay trong render.py.
@@ -340,7 +419,7 @@ const server = createServer(async (req, res) => {
                 const u = [...urlToShot].find(([, shotId]) => shotId === r.id)?.[0];
                 if (u) pngByUrl.set(u, r.out);
               } else {
-                embedNotes += 'Embed: bỏ qua ' + (r.id || '?') + ' — ' + (r.error || 'không chụp được') + '\n';
+                shotNotes += 'Embed: bỏ qua ' + (r.id || '?') + ' — ' + (r.error || 'không chụp được') + '\n';
               }
             }
             if (pngByUrl.size) {
@@ -353,7 +432,7 @@ const server = createServer(async (req, res) => {
               writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf8');
             }
           } catch (e) {
-            embedNotes += 'Embed: chụp thẻ thất bại, dùng thẻ vẽ tay — ' + (e?.message || e) + '\n';
+            shotNotes += 'Embed: chụp thẻ thất bại, dùng thẻ vẽ tay — ' + (e?.message || e) + '\n';
           }
         }
       }
@@ -365,7 +444,7 @@ const server = createServer(async (req, res) => {
       // Ép Python con dùng UTF-8: Windows mặc định cp1252, log/render có
       // tiếng Việt sẽ crash UnicodeEncodeError 'charmap' (chữ ễ...).
       const child = spawn(PYTHON, [join(ROOT, 'render.py'), '--project', projectPath, '--out', outPath, '--workdir', join(jobDir, 'work')], { cwd: ROOT, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8:replace' } });
-      let log = embedNotes;
+      let log = shotNotes;
       if (log) writeFileSync(logPath, log);
       child.stdout.on('data', (d) => { log += d; writeFileSync(logPath, log); job.progress = d.toString().trim().split('\n').pop(); });
       child.stderr.on('data', (d) => { log += d; writeFileSync(logPath, log); });

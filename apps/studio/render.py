@@ -181,9 +181,23 @@ def render_card(seg: dict, out: Path, settings: dict | None = None) -> None:
     for i in range(1, len(items)):
         items[i]["depth"] = max(1, items[i]["depth"])
 
+    # Thẻ replica: ảnh đã dựng sẵn giống giao diện Threads (cardPng) thì
+    # dùng thẳng, chỉ co về đúng rộng thẻ và giới hạn chiều cao.
+    card_style = (settings or {}).get("cardStyle", "embed")
+    card_png = seg.get("cardPng") or ""
+    if card_style != "hand" and card_png and Path(card_png).exists():
+        im = Image.open(card_png).convert("RGBA")
+        if im.width != CARD_W:
+            im = im.resize((CARD_W, max(1, round(im.height * CARD_W / im.width))), Image.LANCZOS)
+        if im.height > 1500:
+            im = im.resize((CARD_W, 1500), Image.LANCZOS)
+        canvas = Image.new("RGBA", (CARD_W, im.height), (0, 0, 0, 0))
+        canvas.paste(im, (0, 0), im)
+        canvas.save(out, "PNG")
+        return
+
     # Thẻ embed: mọi item đều có ảnh chụp thì xếp chồng, thiếu một ảnh
     # thì vẽ tay cả đoạn cho đồng bộ (không trộn hai kiểu trong một thẻ).
-    card_style = (settings or {}).get("cardStyle", "embed")
     embed_paths = [Path(it["embed_png"]) if it["embed_png"] else None for it in items]
     if card_style != "hand" and all(p is not None and p.exists() for p in embed_paths):
         pad_e = 44

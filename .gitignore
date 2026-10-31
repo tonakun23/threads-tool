@@ -18,6 +18,7 @@ apps/studio/uploads/
 apps/studio/out/
 apps/studio/jobs/
 apps/studio/embed-preview/
+apps/studio/card-preview/
 apps/studio/debug/
 apps/studio/debug/
 apps/studio/.venv/
