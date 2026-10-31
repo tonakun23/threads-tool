@@ -6,11 +6,12 @@
  *  - trong test Node/jsdom (import trực tiếp).
  *
  * NGUYÊN TẮC (rút ra từ video mẫu + ảnh chụp lỗi của Tony, 31/10):
- *  1. Một bài = một đơn vị `div[tabindex="0"]` (hoặc <article> /
- *     [role="article"] nếu DOM mới đổi khung). Không đi ngược lên
- *     container to chứa cả chuỗi trả lời — đó là lý do nội dung bị lẫn
- *     "856K lượt xem", "20 giờ", "Tác giả", cả nội dung của bình luận
- *     con vào bài cha.
+ *  1. Một bài = khung [data-pressable-container] gần nhất của link
+ *     /post/ (DOM thật 31/10), lui dần div[tabindex="0"] / <article> /
+ *     [role="article"]. Cột cuộn chung chứa cả trang KHÔNG phải khung
+ *     bài. Không đi ngược lên container to chứa cả chuỗi trả lời — đó
+ *     là lý do nội dung bị lẫn "856K lượt xem", "20 giờ", "Tác giả",
+ *     cả nội dung của bình luận con vào bài cha.
  *  2. Giữ nguyên thứ tự trên trang (hội thoại), KHÔNG sắp xếp theo like.
  *  3. Chuỗi trả lời (reply lồng nhau) được giữ qua parentId/depth để
  *     hiển thị gộp trong một thẻ, giống ảnh chụp màn hình Threads.
@@ -121,21 +122,36 @@ function isInside(el, ancestor) {
   return false;
 }
 
-// Khung của một bài: ưu tiên div[tabindex="0"] (DOM cũ), rồi <article>
-// hoặc [role="article"] (DOM mới), rồi đi ngược tìm khung có nút thống
-// kê / thẻ time. Threads đổi khung theo đợt nên phải có nhiều đường lui.
-const UNIT_SELECTOR = 'div[tabindex="0"], article, [role="article"]';
+// Khung của một bài: ưu tiên [data-pressable-container] (DOM thật
+// 31/10: mỗi bài là một khung này), rồi div[tabindex="0"] / <article> /
+// [role="article"]. Cột cuộn chung (div[role="region"][tabindex="0"]
+// [data-column-scrollable]) CHỨA CẢ TRANG — tuyệt đối không được coi
+// là khung của một bài: nhận nhầm nó thì mọi bài chung một khung, nội
+// dung bị gộp rồi lọc sạch (lỗi empty-extraction 31/10).
+const UNIT_SELECTOR = '[data-pressable-container], div[tabindex="0"], article, [role="article"]';
 function unitOf(el) {
-  return el ? el.closest(UNIT_SELECTOR) : null;
+  let cur = el;
+  while (cur) {
+    const u = cur.closest ? cur.closest(UNIT_SELECTOR) : null;
+    if (!u) return null;
+    if (u.hasAttribute && u.hasAttribute('data-column-scrollable')) { cur = u.parentElement; continue; }
+    return u;
+  }
+  return null;
 }
 function findUnit(link) {
-  let unit = link.closest('div[tabindex="0"]');
-  if (unit) return unit;
-  unit = link.closest('article') || link.closest('[role="article"]');
-  if (unit) return unit;
+  const u = unitOf(link);
+  if (u) return u;
   let el = link.parentElement;
   let depth = 0;
   while (el && depth < 12) {
+    if (el.hasAttribute && el.hasAttribute('data-column-scrollable')) { el = el.parentElement; depth++; continue; }
+    const ids = new Set();
+    for (const a of el.querySelectorAll('a[href*="/post/"]')) {
+      const p = postIdFromHref(a.getAttribute('href') || '');
+      if (p) ids.add(p.id);
+    }
+    if (ids.size > 2) { el = el.parentElement; depth++; continue; }
     const btns = el.querySelectorAll('div[role="button"]');
     let stats = 0;
     for (const b of btns) {
@@ -222,23 +238,22 @@ function extractPosts(doc) {
       // Nằm trong đơn vị con khác?
       const nestedUnit = unitOf(el);
       if (nestedUnit && nestedUnit !== unit) continue;
-      // Thuộc bài trích dẫn (quoted)? Một khối bị coi là trích dẫn khi
-      // một tổ tiên (tới khung bài) chứa link /post/ tới bài KHÁC id mà
-      // link đó thuộc chính khung này — link của đơn vị con lồng nhau
-      // thì không tính (khối của đơn vị con đã bị loại ở bước trên).
+      // Thuộc bài trích dẫn (quoted)? Chỉ xét THẺ CHA trực tiếp: nếu
+      // thẻ cha chứa link /post/ tới bài KHÁC id đứng TRƯỚC khối chữ
+      // này thì khối chữ thuộc thẻ trích dẫn. Không xét tổ tiên xa hơn:
+      // trong khung cột chung, tổ tiên xa chứa link của mọi bài khác
+      // nên xét xa sẽ lọc sạch cả nội dung thật (lỗi 31/10).
       let quoted = false;
-      let anc = el.parentElement;
-      while (anc && anc !== unit) {
-        const qs = anc.querySelectorAll('a[href*="/post/"]');
-        for (const q of qs) {
+      const parentEl = el.parentElement;
+      if (parentEl && parentEl !== unit) {
+        for (const q of parentEl.querySelectorAll('a[href*="/post/"]')) {
           const qp = postIdFromHref(q.getAttribute('href') || '');
-          if (qp && qp.id !== parsed.id) {
+          // 4 = DOCUMENT_POSITION_FOLLOWING: link đứng trước khối chữ.
+          if (qp && qp.id !== parsed.id && (q.compareDocumentPosition(el) & 4)) {
             const qUnit = unitOf(q);
             if (!qUnit || qUnit === unit) { quoted = true; break; }
           }
         }
-        if (quoted) break;
-        anc = anc.parentElement;
       }
       if (quoted) continue;
       // Chỉ lấy khối lá: bỏ khối cha nếu đã có khối con cùng chữ.

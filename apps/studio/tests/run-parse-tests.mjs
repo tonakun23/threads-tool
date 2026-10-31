@@ -1,5 +1,5 @@
 /** Chạy: node tests/run-parse-tests.mjs (cần jsdom: xem tests/README.md)
- * 55 assertion, chia nhóm A–G. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
+ * 61 assertion, chia nhóm A–H. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -90,6 +90,15 @@ check('G02', 'bài gốc lấy được chữ từ span thường, không lẫn 
 check('G03', 'reply lồng 2 tầng: REP003 cha là REP002, sâu 1; bài gốc không lẫn reply', g[2].parentId === 'REP002' && g[2].depth === 1 && !g[0].content.includes('Trả lời lồng') && g[1].content === 'Trả lời lồng trong khung cha.', g.map((p) => [p.id, p.parentId, p.depth, p.content]));
 check('G04', 'link /post/<id> suy username từ link hồ sơ, lấy chữ từ <p>', (() => { const o = g.find((p) => p.id === 'ONLY99'); return o.author.username === 'solo_user' && o.content === 'Nội dung trong thẻ p, link rút gọn.'; })(), g.find((p) => p.id === 'ONLY99')?.author);
 check('G05', 'group article: 2 chuỗi, REP003 gắn đúng chuỗi REP002', (() => { const gr = groupIntoChains(g); return gr.chains.length === 2 && gr.chains[0].root.id === 'REP002' && gr.chains[0].replies.length === 1 && gr.chains[0].replies[0].id === 'REP003'; })(), groupIntoChains(g).chains.map((c) => [c.root.id, c.replies.map((r) => r.id)]));
+
+// H: fixture DOM thật — cột chung + pressable-container (6 ca)
+const h = extractPosts(load('thread-column.html'));
+check('H01', 'đủ 4 bài, link ?xmt= ngoài khung không tạo bài trùng', eq(h.map((p) => p.id), ['MAIN01', 'REPLY02', 'REPLY03', 'OTHER04']), h.map((p) => p.id));
+check('H02', 'bài gốc đúng nội dung, không gộp cả cột, không lẫn trích dẫn', h[0].content === 'Thiên tài diễn xuất PewPew và nhà biên kịch đại tài Độ Phùng' && !h[0].content.includes('trích dẫn') && !h[0].content.includes('lượt xem'), h[0].content);
+check('H03', 'stats bài gốc qua khung pressable', h[0].stats.likes === 8500 && h[0].stats.replies === 79 && h[0].stats.reposts === 923 && h[0].stats.shares === 1000, h[0].stats);
+check('H04', 'avatar alt tiếng Việt nhận diện được', (h[0].author.avatarUrl || '').includes('avatar-w.jpg'), h[0].author.avatarUrl);
+check('H05', 'reply lồng trong pressable cha: REP003 cha là REPLY02, sâu 1', h[2].parentId === 'REPLY02' && h[2].depth === 1 && h[1].content === '2 ng đàn ông U40 và những thú vui kì lạ', h.map((p) => [p.id, p.parentId, p.depth, p.content]));
+check('H06', 'group cột: 2 chuỗi (REPLY02+REP003, OTHER04)', (() => { const gr = groupIntoChains(h); return gr.chains.length === 2 && gr.chains[0].root.id === 'REPLY02' && gr.chains[0].replies[0].id === 'REPLY03' && gr.chains[1].root.id === 'OTHER04'; })(), groupIntoChains(h).chains.map((c) => [c.root.id, c.replies.map((r) => r.id)]));
 
 console.log(`\n${pass}/${pass + fail} ca PASS (${cases.filter((c) => c.ok).length} ok, ${fail} fail)`);
 process.exit(fail ? 1 : 0);

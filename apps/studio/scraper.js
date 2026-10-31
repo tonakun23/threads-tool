@@ -33,11 +33,20 @@ async function writeScrapeDiagnostics(page, reason) {
             tag: el.tagName,
             tabindex: el.getAttribute ? el.getAttribute('tabindex') : null,
             role: el.getAttribute ? el.getAttribute('role') : null,
+            pressable: el.getAttribute ? el.getAttribute('data-pressable-container') : null,
             cls: String((el.className && el.className.baseVal !== undefined) ? '' : (el.className || '')).slice(0, 80),
           });
           el = el.parentElement; d++;
         }
-        const unit = link.closest('div[tabindex="0"]') || link.closest('article') || link.closest('[role="article"]');
+        // Cùng quy tắc khung như threads-parse.js: pressable trước,
+        // bỏ qua cột cuộn chung.
+        let unit = null, cur = link;
+        while (cur) {
+          const u = cur.closest ? cur.closest('[data-pressable-container], div[tabindex="0"], article, [role="article"]') : null;
+          if (!u) break;
+          if (u.hasAttribute && u.hasAttribute('data-column-scrollable')) { cur = u.parentElement; continue; }
+          unit = u; break;
+        }
         const cands = unit ? Array.from(unit.querySelectorAll('div[dir="auto"], span[dir="auto"]')) : [];
         units.push({
           href: link.getAttribute('href'),
@@ -54,6 +63,7 @@ async function writeScrapeDiagnostics(page, reason) {
         counts: {
           postLinks: links.length,
           tabindexUnits: document.querySelectorAll('div[tabindex="0"]').length,
+          pressableUnits: document.querySelectorAll('[data-pressable-container]').length,
           articles: document.querySelectorAll('article').length,
           roleArticles: document.querySelectorAll('[role="article"]').length,
           dirAuto: document.querySelectorAll('[dir="auto"]').length,
