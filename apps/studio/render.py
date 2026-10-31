@@ -154,10 +154,14 @@ def avatar_letter(username: str) -> str:
     return '?'
 
 
-def render_card(seg: dict, out: Path) -> None:
+def render_card(seg: dict, out: Path, settings: dict | None = None) -> None:
     """Thẻ tối giống Threads dark mode trong video mẫu: nền #141414,
     chữ trắng, giờ xám, mỗi bình luận một hàng thống kê rút gọn.
     Chuỗi trả lời (items) hiện chung một thẻ, reply thụt vào + kẻ dọc.
+
+    Nếu cardStyle != 'hand' và mọi item đều có ảnh chụp embed chính
+    thức (embedPng) thì xếp chồng các ảnh embed thành thẻ, không vẽ
+    tay — thẻ là khung thật do Threads render.
     """
     raw_items = seg.get("items") or [seg]
     items = []
@@ -171,10 +175,40 @@ def render_card(seg: dict, out: Path) -> None:
             "stats": it.get("stats") or {},
             "time_label": it.get("timeLabel") or it.get("timestamp") or "",
             "depth": int(it.get("depth") or 0),
+            "embed_png": it.get("embedPng") or "",
         })
     # Reply sau bình luận đầu được thụt vào dù depth từ dữ liệu cũ = 0.
     for i in range(1, len(items)):
         items[i]["depth"] = max(1, items[i]["depth"])
+
+    # Thẻ embed: mọi item đều có ảnh chụp thì xếp chồng, thiếu một ảnh
+    # thì vẽ tay cả đoạn cho đồng bộ (không trộn hai kiểu trong một thẻ).
+    card_style = (settings or {}).get("cardStyle", "embed")
+    embed_paths = [Path(it["embed_png"]) if it["embed_png"] else None for it in items]
+    if card_style != "hand" and all(p is not None and p.exists() for p in embed_paths):
+        pad_e = 44
+        inner_w_e = CARD_W - pad_e * 2
+        shots = []
+        for p, it in zip(embed_paths, items):
+            im = Image.open(p).convert("RGBA")
+            w = inner_w_e - (58 if it["depth"] else 0)
+            if im.width != w:
+                im = im.resize((w, max(1, round(im.height * w / im.width))), Image.LANCZOS)
+            shots.append((im, it["depth"]))
+        total_h = pad_e * 2 + sum(im.height for im, _ in shots) + 16 * (len(shots) - 1)
+        if total_h > 1500:
+            scale = 1500 / total_h
+            shots = [(im.resize((max(1, round(im.width * scale)),
+                                 max(1, round(im.height * scale))), Image.LANCZOS), d)
+                     for im, d in shots]
+            total_h = pad_e * 2 + sum(im.height for im, _ in shots) + 16 * (len(shots) - 1)
+        card = Image.new("RGBA", (CARD_W, total_h), (0, 0, 0, 0))
+        y = pad_e
+        for im, depth in shots:
+            card.paste(im, (pad_e + (58 if depth else 0), y), im)
+            y += im.height + 16
+        card.save(out, "PNG")
+        return
 
     pad, gap = 44, 20
     inner_w = CARD_W - pad * 2
@@ -317,7 +351,7 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
 def render_segment(i: int, seg: dict, settings: dict, work: Path,
                    bg_png: Path, dur: float) -> Path:
     card = work / f"card-{i}.png"
-    render_card(seg, card)
+    render_card(seg, card, settings)
     narration = work / f"narr-{i}.mp3"
     tts_dur = make_tts(seg, settings, narration, work)
     total = tts_dur + float(settings.get("pauseSeconds", 0.6))

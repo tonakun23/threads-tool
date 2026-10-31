@@ -204,6 +204,7 @@ const server = createServer(async (req, res) => {
           content: String(it.content || '').slice(0, 2000),
           ttsText: String(it.ttsText || it.content || '').slice(0, 2000),
           timeLabel: String(it.timeLabel || '').slice(0, 20),
+          url: String(it.url || '').slice(0, 300),
           stats: { likes: Number(it.stats?.likes || 0), replies: Number(it.stats?.replies || 0), reposts: Number(it.stats?.reposts || 0), shares: Number(it.stats?.shares || 0) },
           depth: Number(it.depth || 0),
         });
@@ -211,7 +212,8 @@ const server = createServer(async (req, res) => {
         const first = items[0];
         return {
           kind: s.kind || 'comment', author: first.author, content: first.content, ttsText: first.ttsText,
-          timeLabel: first.timeLabel, stats: first.stats, items: items.length > 1 ? items : undefined,
+          timeLabel: first.timeLabel, stats: first.stats, url: first.url || '',
+          items: items.length > 1 ? items : undefined,
           meme: s.meme?.id ? { kind: s.meme.kind || 'image', path: resolveUpload(s.meme.id), name: s.meme.name || '' } : null,
         };
       }).filter((s) => (s.items ? s.items.some((it) => it.content.trim()) : s.content.trim()));
@@ -226,6 +228,7 @@ const server = createServer(async (req, res) => {
           watermarkPosition: ['top', 'bottom', 'both'].includes(settings.watermarkPosition) ? settings.watermarkPosition : 'top',
           voice: String(settings.voice || 'vi-VN-HoaiMyNeural'),
           ratePercent: Math.max(-50, Math.min(100, parseInt(settings.ratePercent ?? 20, 10) || 20)),
+          cardStyle: settings.cardStyle === 'hand' ? 'hand' : 'embed',
           pauseSeconds: Math.max(0, Math.min(2, parseFloat(settings.pauseSeconds ?? 0.6) || 0.6)),
           bgmVolume: Math.max(0, Math.min(0.5, parseFloat(settings.bgmVolume ?? 0.12) || 0.12)),
           bgVideo: resolveUpload(settings.bgVideoId),
@@ -239,6 +242,63 @@ const server = createServer(async (req, res) => {
       const job = { id, status: 'running', progress: 'Đang dựng video…', videoUrl: null, error: null, createdAt: new Date().toISOString() };
       jobs.set(id, job);
       const logPath = join(jobDir, 'render.log');
+      // Ghi chú embed (nếu chụp lỗi) — giữ trong biến để không bị
+      // render.log của render.py ghi đè mất (nó writeFileSync lại file).
+      let embedNotes = '';
+      // Thẻ embed: chụp thẻ Threads chính thức cho từng URL riêng biệt
+      // TRƯỚC khi render.py chạy. Chụp lỗi (thiếu playwright, embed.js
+      // không render) thì đoạn đó tự rơi về thẻ vẽ tay trong render.py.
+      if (project.settings.cardStyle === 'embed') {
+        const urlToShot = new Map();
+        for (const s of cleanSegments) {
+          for (const it of (s.items || [s])) {
+            const u = String(it.url || '');
+            if (/^https?:\/\//.test(u) && u.includes('/post/') && !urlToShot.has(u)) {
+              urlToShot.set(u, 'shot-' + urlToShot.size);
+            }
+          }
+        }
+        if (urlToShot.size) {
+          const embedDir = join(jobDir, 'embed');
+          mkdirSync(embedDir, { recursive: true });
+          const manifestPath = join(jobDir, 'embed-manifest.json');
+          writeFileSync(manifestPath, JSON.stringify([...urlToShot].map(([url, shotId]) => ({ id: shotId, url }))), 'utf8');
+          try {
+            const shotJson = await new Promise((resolveShot, rejectShot) => {
+              const child = spawn(process.execPath, [join(ROOT, 'embed-shot.js'), '--manifest', manifestPath, '--out-dir', embedDir], { timeout: 300000 });
+              let out = '', err = '';
+              child.stdout.on('data', (d) => { out += d; });
+              child.stderr.on('data', (d) => { err += d; });
+              child.on('error', rejectShot);
+              child.on('close', (code) => {
+                if (code !== 0) rejectShot(new Error(err.trim().split('\n').pop() || 'embed-shot thất bại.'));
+                else resolveShot(out);
+              });
+            });
+            const results = JSON.parse(shotJson);
+            const pngByUrl = new Map();
+            for (const r of results) {
+              if (r.ok) {
+                const u = [...urlToShot].find(([, shotId]) => shotId === r.id)?.[0];
+                if (u) pngByUrl.set(u, r.out);
+              } else {
+                embedNotes += 'Embed: bỏ qua ' + (r.id || '?') + ' — ' + (r.error || 'không chụp được') + '\n';
+              }
+            }
+            if (pngByUrl.size) {
+              for (const s of cleanSegments) {
+                for (const it of (s.items || [s])) {
+                  const png = pngByUrl.get(String(it.url || ''));
+                  if (png) it.embedPng = png;
+                }
+              }
+              writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf8');
+            }
+          } catch (e) {
+            embedNotes += 'Embed: chụp thẻ thất bại, dùng thẻ vẽ tay — ' + (e?.message || e) + '\n';
+          }
+        }
+      }
       // Chạy render.py bằng python của .venv nếu có (nơi đã cài Pillow
       // + edge-tts theo README) — python hệ thống thường thiếu edge-tts
       // nên giọng đọc rơi về im lặng ("No module named 'edge_tts'").
@@ -247,7 +307,8 @@ const server = createServer(async (req, res) => {
       // Ép Python con dùng UTF-8: Windows mặc định cp1252, log/render có
       // tiếng Việt sẽ crash UnicodeEncodeError 'charmap' (chữ ễ...).
       const child = spawn(PYTHON, [join(ROOT, 'render.py'), '--project', projectPath, '--out', outPath, '--workdir', join(jobDir, 'work')], { cwd: ROOT, env: { ...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8:replace' } });
-      let log = '';
+      let log = embedNotes;
+      if (log) writeFileSync(logPath, log);
       child.stdout.on('data', (d) => { log += d; writeFileSync(logPath, log); job.progress = d.toString().trim().split('\n').pop(); });
       child.stderr.on('data', (d) => { log += d; writeFileSync(logPath, log); });
       child.on('close', (code) => {

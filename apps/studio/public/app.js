@@ -53,7 +53,7 @@ function statsLine(stats) {
 }
 function segItems(seg) {
   if (seg.kind === 'chain') return seg.items;
-  return [{ author: seg.author, content: seg.content, ttsText: seg.ttsText, timeLabel: seg.timeLabel, timestamp: seg.timestamp, stats: seg.stats }];
+  return [{ author: seg.author, content: seg.content, ttsText: seg.ttsText, timeLabel: seg.timeLabel, timestamp: seg.timestamp, stats: seg.stats, url: seg.url || '' }];
 }
 function segText(seg) { return segItems(seg).map((it) => it.ttsText || it.content).join(' '); }
 
@@ -66,8 +66,8 @@ async function uploadFile(file) {
   return j;
 }
 
-function makeSegment(author, content, stats, timeLabel, kind, timestamp) {
-  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
+function makeSegment(author, content, stats, timeLabel, kind, timestamp, url) {
+  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
 }
 function makeChainSegment(posts) {
   return {
@@ -75,7 +75,7 @@ function makeChainSegment(posts) {
     items: posts.map((p) => ({
       author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified },
       content: p.content || '', ttsText: p.content || '',
-      timeLabel: p.timeLabel || '', timestamp: p.timestamp || '',
+      timeLabel: p.timeLabel || '', timestamp: p.timestamp || '', url: p.url || '',
       stats: p.stats || { likes: 0, replies: 0, reposts: 0, shares: 0 },
       depth: Number(p.depth || 0), parentId: p.parentId || null, id: p.id || '',
     })),
@@ -240,7 +240,7 @@ function renderSegments() {
 
 function loadData(data) {
   state.segments = [];
-  if (data.post) state.segments.push(makeSegment(data.post.author, data.post.content, data.post.stats, data.post.timeLabel || '', 'post', data.post.timestamp));
+  if (data.post) state.segments.push(makeSegment(data.post.author, data.post.content, data.post.stats, data.post.timeLabel || '', 'post', data.post.timestamp, data.post.url || ''));
   const chains = groupCommentsIntoChains(data.comments || []);
   for (const ch of chains) state.segments.push(makeChainSegment(ch));
   renderSegments();
@@ -309,11 +309,12 @@ $('#btnRender').addEventListener('click', async () => {
     const items = segItems(s).map((it) => ({
       author: it.author, content: it.content, ttsText: it.ttsText || it.content,
       timeLabel: formatTimeLabel(it.timestamp, it.timeLabel), stats: it.stats, depth: it.depth || 0,
+      url: it.url || '',
     }));
     const first = items[0];
     return {
       kind: s.kind, author: first.author, content: first.content, ttsText: first.ttsText,
-      timeLabel: first.timeLabel, stats: first.stats, items: items.length > 1 ? items : undefined,
+      timeLabel: first.timeLabel, stats: first.stats, url: first.url || '', items: items.length > 1 ? items : undefined,
       meme: s.memeId ? (() => { const m = state.memes.find((x) => x.id === s.memeId); return m ? { id: m.id, kind: m.kind, name: m.name } : null; })() : null,
     };
   });
@@ -326,6 +327,7 @@ $('#btnRender').addEventListener('click', async () => {
       settings: {
         watermark: $('#watermark').value, watermarkPosition: $('#watermarkPosition').value,
         voice: $('#voice').value, ratePercent: parseInt($('#rate').value, 10),
+        cardStyle: $('#cardStyle') ? $('#cardStyle').value : 'embed',
         bgmVolume: parseInt($('#bgmVolume').value, 10) / 100,
         bgVideoId: state.uploads.bgVideo || null, bgImageId: state.uploads.bgImage || null, bgmId: state.uploads.bgm || null,
       },

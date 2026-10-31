@@ -23,6 +23,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 # render sẽ tự dùng file im lặng ước lượng thời lượng.
 
 # Cào live cần thêm Playwright (nặng, chỉ cài khi cần):
+# Playwright cũng dùng để chụp thẻ embed chính thức (mặc định) lúc render.
 npm install playwright && npx playwright install chromium
 
 node server.js
@@ -84,7 +85,8 @@ log sẽ ghi rõ. Muốn giọng khác (OpenAI / ElevenLabs…), thay `tts.py`.
 |---|---|
 | `server.js` | Web server Node thuần (không dependency), API + upload + job render |
 | `scraper.js` | Cào live bằng Playwright, in JSON `{post, comments}` |
-| `render.py` | Vẽ thẻ PNG (Pillow) + dựng clip từng đoạn + nối + trộn BGM (FFmpeg) |
+| `embed-shot.js` | Chụp thẻ Threads chính thức từ mã embed (`Get embed code`): dựng blockquote `text-post-media` + `embed.js`, chụp bằng Playwright. Cần Playwright + Chromium (chung với cào live). Chụp lỗi thì đoạn đó tự rơi về thẻ vẽ tay. |
+| `render.py` | Vẽ thẻ PNG (Pillow) + dựng clip từng đoạn + nối + trộn BGM (FFmpeg). Nếu `cardStyle=embed` và đủ ảnh embed thì xếp chồng ảnh embed thành thẻ thay cho vẽ tay. |
 | `tts.py` | Gọi Edge TTS, lỗi thì trả mã 2 để render fallback |
 | `demo-data.json` | Bài + 7 bình luận mẫu theo ảnh chụp Tony gửi |
 | `public/` | Giao diện web tiếng Việt |
