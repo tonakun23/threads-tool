@@ -67,11 +67,11 @@ async function uploadFile(file) {
 }
 
 function makeSegment(author, content, stats, timeLabel, kind, timestamp, url) {
-  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
+  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', embedCode: '', include: true };
 }
 function makeChainSegment(posts) {
   return {
-    key: ++segCounter, kind: 'chain', memeId: '', include: true,
+    key: ++segCounter, kind: 'chain', memeId: '', embedCode: '', include: true,
     items: posts.map((p) => ({
       author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified, avatarUrl: p.author?.avatarUrl || '' },
       content: p.content || '', ttsText: p.content || '',
@@ -115,8 +115,18 @@ function markShotPending(seg) {
 }
 
 function currentCardStyle() { return $('#cardStyle') ? $('#cardStyle').value : 'replica'; }
+// Lấy link bài Threads từ mã embed đã dán (blockquote text-post-media
+// lấy từ nút … → Get embed code): ưu tiên data-text-post-permalink,
+// rồi tới href tới /post/ trong mã. Không phải mã embed thì trả ''.
+function parseEmbedCode(code) {
+  const s = String(code || '');
+  const m = s.match(/data-text-post-permalink=["']([^"']+)["']/i)
+    || s.match(/href=["'](https?:\/\/[^"']*\/post\/[^"']*)["']/i);
+  const url = m ? m[1] : '';
+  return /^https?:\/\//.test(url) && /threads\.(com|net)/i.test(url) && url.includes('/post/') ? url : '';
+}
 function shotHash(seg) {
-  return JSON.stringify(segItems(seg).map((it) => [it.author?.username, it.author?.avatarUrl, it.content, it.timeLabel, it.stats, it.depth]));
+  return JSON.stringify([seg.embedCode || '', segItems(seg).map((it) => [it.author?.username, it.author?.avatarUrl, it.content, it.timeLabel, it.stats, it.depth])]);
 }
 async function ensureRealShot(seg, opts = {}) {
   if (!seg || currentCardStyle() === 'hand') return;
@@ -134,7 +144,16 @@ async function ensureRealShot(seg, opts = {}) {
   if (vis0[preview.index] === seg) renderPreview();
   try {
     let shots;
-    if (currentCardStyle() === 'embed') {
+    const embedUrl = parseEmbedCode(seg.embedCode || '');
+    if (embedUrl) {
+      // Đoạn có mã embed dán sẵn: chụp đúng thẻ embed chính thức của
+      // URL đó, bất kể kiểu thẻ đang chọn.
+      const r = await fetch('/api/embed-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls: [embedUrl] }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Không chụp được thẻ embed.');
+      shots = (j.shots || []).filter((s) => s.ok);
+      if (!shots.length) throw new Error((j.shots || [])[0]?.error || 'Không chụp được thẻ embed.');
+    } else if (currentCardStyle() === 'embed') {
       const urls = segItems(seg).map((it) => it.url || '').filter((u) => u.includes('/post/'));
       if (!urls.length) {
         if (seq === realShotSeq) {
@@ -260,7 +279,7 @@ function renderPreview() {
   const durs = segs.map((s) => estimateDuration(segText(s), rate));
   const total = durs.reduce((a, b) => a + b, 0);
   $('#previewInfo').textContent = `Đoạn này khoảng ${durs[preview.index].toFixed(1)} giây (ước lượng theo giọng đọc). Cả video khoảng ${total.toFixed(1)} giây, chưa tính thời gian render thật.`;
-  if (embedShotView.shots) $('#previewInfo').textContent += ' Đang hiện thẻ thật giống Threads — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ này.';
+  if (embedShotView.shots) $('#previewInfo').textContent += parseEmbedCode(seg.embedCode || '') ? ' Đang hiện thẻ embed Threads chính thức từ mã embed đã dán cho đoạn này — đúng thẻ sẽ dùng trong video.' : ' Đang hiện thẻ thật giống Threads — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ này.';
   else if (lastShotError && lastShotError.segKey === seg.key) $('#previewInfo').textContent += ' Không dựng được thẻ thật: ' + lastShotError.msg + ' — đang hiện bản mô phỏng.';
   // Meme của đoạn đang xem.
   const meme = seg.memeId ? state.memes.find((m) => m.id === seg.memeId) : null;
@@ -344,11 +363,25 @@ function renderSegments() {
       ${itemsHtml}
       <label>Meme chèn trong đoạn này:
         <select class="seg-meme"><option value="">— Không chèn meme —</option>${state.memes.map((m) => `<option value="${m.id}" ${seg.memeId === m.id ? 'selected' : ''}>${esc(m.name)} (${m.kind})</option>`).join('')}</select>
-      </label>`;
+      </label>
+      <label>Embed Threads thay thẻ này (dán mã embed, để trống thì dùng thẻ thường):
+        <textarea class="seg-embed" rows="2" placeholder="Dán mã <blockquote class=&quot;text-post-media&quot; ...> lấy từ nút … → Get embed code của bài Threads">${esc(seg.embedCode || '')}</textarea>
+      </label>
+      <p class="hint seg-embed-status" style="margin:0"></p>`;
     div.querySelectorAll('.seg-content').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].content = e.target.value; renderPreview(); scheduleShotRefresh(seg); }));
     div.querySelectorAll('.seg-tts').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].ttsText = e.target.value; renderPreview(); }));
     div.querySelector('.seg-include').addEventListener('change', (e) => { seg.include = e.target.checked; renderPreview(); });
     div.querySelector('.seg-meme').addEventListener('change', (e) => { seg.memeId = e.target.value; renderPreview(); });
+    const embedTa = div.querySelector('.seg-embed');
+    const embedStatus = div.querySelector('.seg-embed-status');
+    const refreshEmbedStatus = () => {
+      const u = parseEmbedCode(embedTa.value);
+      embedStatus.textContent = embedTa.value.trim()
+        ? (u ? '✓ Đoạn này sẽ dùng thẻ embed chính thức của: ' + u : '⚠ Chưa nhận ra link Threads trong mã embed — kiểm tra lại mã đã dán.')
+        : '';
+    };
+    embedTa.addEventListener('input', (e) => { seg.embedCode = e.target.value; refreshEmbedStatus(); renderPreview(); scheduleShotRefresh(seg); });
+    refreshEmbedStatus();
     div.querySelector('.seg-view').addEventListener('click', () => { const vis = visibleSegments(); const idx = vis.indexOf(seg); if (idx >= 0) setPreviewIndex(idx); document.querySelector('.preview-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     div.querySelector('.seg-del').addEventListener('click', () => { state.segments = state.segments.filter((s) => s !== seg); renderSegments(); });
     div.querySelector('.seg-up').addEventListener('click', () => { const j = state.segments.indexOf(seg); if (j > 0) { [state.segments[j - 1], state.segments[j]] = [state.segments[j], state.segments[j - 1]]; renderSegments(); } });
@@ -369,7 +402,7 @@ function loadData(data) {
   preview.index = 0;
   const vis = visibleSegments();
   if (vis.length) { markShotPending(vis[0]); renderPreview(); ensureRealShot(vis[0]); }
-  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận tương tác cao nhất (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.`);
+  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận tương tác cao nhất (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.` + (data.diagnostic ? ` Số liệu bài gốc đang 0 — tool đã lưu file chẩn đoán DOM tại apps/studio/debug/${data.diagnostic}, gửi mình file đó để sửa đúng cấu trúc thật của trang.` : ''));
 }
 
 async function doScrape(mode, extra) {
@@ -467,6 +500,7 @@ $('#btnRender').addEventListener('click', async () => {
     return {
       kind: s.kind, author: first.author, content: first.content, ttsText: first.ttsText,
       timeLabel: first.timeLabel, stats: first.stats, url: first.url || '', items: items.length > 1 ? items : undefined,
+      embedCode: s.embedCode || '',
       meme: s.memeId ? (() => { const m = state.memes.find((x) => x.id === s.memeId); return m ? { id: m.id, kind: m.kind, name: m.name } : null; })() : null,
     };
   });

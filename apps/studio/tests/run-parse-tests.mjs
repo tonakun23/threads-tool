@@ -1,5 +1,5 @@
 /** Chạy: node tests/run-parse-tests.mjs (cần jsdom: xem tests/README.md)
- * 67 assertion, chia nhóm A–I. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
+ * 70 assertion, chia nhóm A–J. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -108,6 +108,12 @@ check('I03', 'không lẫn lượt xem, "2024", trích dẫn vào nội dung/sta
 check('I04', 'stats reply riêng: 497/22/1/3', ii[1].stats.likes === 497 && ii[1].stats.replies === 22 && ii[1].stats.reposts === 1 && ii[1].stats.shares === 3, ii[1].stats);
 check('I05', 'reply lồng chỉ 1 con số: like 5, còn lại 0', ii[2].stats.likes === 5 && ii[2].stats.replies === 0 && ii[2].stats.reposts === 0 && ii[2].stats.shares === 0, ii[2].stats);
 check('I06', 'group stats: 1 chuỗi REPLY02+NEST03', (() => { const gr = groupIntoChains(ii); return gr.chains.length === 1 && gr.chains[0].root.id === 'REPLY02' && gr.chains[0].replies[0].id === 'NEST03'; })(), groupIntoChains(ii).chains.map((c) => [c.root.id, c.replies.map((r) => r.id)]));
+
+// J: fixture hàng số liệu ngoài khung bài (khối anh em — 3 ca)
+const jj = extractPosts(load('thread-stats-sibling.html'));
+check('J01', 'đủ 2 bài, đúng thứ tự trang', eq(jj.map((p) => p.id), ['MAIN01', 'REPLY02']), jj.map((p) => p.id));
+check('J02', 'stats bài gốc từ hàng anh em: 8,5K/79/923/1K', jj[0].stats.likes === 8500 && jj[0].stats.replies === 79 && jj[0].stats.reposts === 923 && jj[0].stats.shares === 1000, jj[0].stats);
+check('J03', 'stats bài sau riêng, không lẫn hàng anh em của bài trước', jj[1].stats.likes === 100 && jj[1].stats.replies === 2 && jj[1].stats.reposts === 0 && jj[1].stats.shares === 1, jj[1].stats);
 
 console.log(`\n${pass}/${pass + fail} ca PASS (${cases.filter((c) => c.ok).length} ok, ${fail} fail)`);
 process.exit(fail ? 1 : 0);

@@ -164,6 +164,49 @@ function findUnit(link) {
   return null;
 }
 
+// Quét các khối số trần đứng cạnh icon SVG trong một phạm vi (khung bài
+// hoặc khối anh em sau khung bài): trả về các giá trị theo thứ tự xuất
+// hiện — hàng số liệu của Threads là Thích, Bình luận, Đăng lại,
+// Chia sẻ. Chỉ lấy khối mà toàn bộ chữ là một con số, có SVG kề bên,
+// không thuộc đơn vị con, không thuộc bài trích dẫn, không thuộc hàng
+// "lượt xem", không nằm trong nút (nút đã quét ở lượt riêng).
+function collectBareStats(scopeEl, unit, postId) {
+  const bareRe = /^[\d][\d.,\s]*(triệu|nghìn|tr|k|m)?$/i;
+  const nearSvg = (el) => {
+    if (el.querySelector('svg')) return true;
+    const p = el.parentElement;
+    if (p && p.querySelector('svg')) return true;
+    const prev = el.previousElementSibling;
+    if (prev && prev.querySelector('svg')) return true;
+    const next = el.nextElementSibling;
+    if (next && next.querySelector('svg')) return true;
+    return false;
+  };
+  const values = [];
+  for (const el of scopeEl.querySelectorAll('div, span, a, p')) {
+    const u = unitOf(el);
+    if (u && u !== unit) continue;
+    if (el.closest('div[role="button"], button')) continue;
+    const t = (el.textContent || '').trim();
+    if (!bareRe.test(t)) continue;
+    let hasBareChild = false;
+    for (const ch of el.querySelectorAll('div, span, a, p')) {
+      if (bareRe.test((ch.textContent || '').trim())) { hasBareChild = true; break; }
+    }
+    if (hasBareChild) continue;
+    const selfLink = el.closest('a[href*="/post/"]');
+    if (selfLink) {
+      const lp = postIdFromHref(selfLink.getAttribute('href') || '');
+      if (lp && lp.id !== postId) continue;
+    }
+    const parentText = ((el.parentElement && el.parentElement.textContent) || '').toLowerCase();
+    if (parentText.includes('lượt xem') || parentText.includes('views')) continue;
+    if (!nearSvg(el)) continue;
+    values.push(parseStatNumber(t));
+  }
+  return values;
+}
+
 function extractPosts(doc) {
   const links = Array.from(doc.querySelectorAll('a[href*="/post/"]'));
   const seen = new Set();
@@ -307,41 +350,31 @@ function extractPosts(doc) {
       if (kind) { stats[kind] = v; taken.add(kind); }
       else unlabeled.push(v);
     }
+    // Lượt 2: khối số trần cạnh icon SVG trong khung bài.
     if (taken.size < statOrder.length) {
-      const bareRe = /^[\d][\d.,\s]*(triệu|nghìn|tr|k|m)?$/i;
-      const nearSvg = (el) => {
-        if (el.querySelector('svg')) return true;
-        const p = el.parentElement;
-        if (p && p.querySelector('svg')) return true;
-        const prev = el.previousElementSibling;
-        if (prev && prev.querySelector('svg')) return true;
-        const next = el.nextElementSibling;
-        if (next && next.querySelector('svg')) return true;
-        return false;
-      };
-      const bareValues = [];
-      for (const el of unit.querySelectorAll('div, span')) {
-        const u = unitOf(el);
-        if (u && u !== unit) continue;
-        if (el.closest('div[role="button"], button')) continue;
-        const t = (el.textContent || '').trim();
-        if (!bareRe.test(t)) continue;
-        let hasBareChild = false;
-        for (const ch of el.querySelectorAll('div, span')) {
-          if (bareRe.test((ch.textContent || '').trim())) { hasBareChild = true; break; }
-        }
-        if (hasBareChild) continue;
-        const selfLink = el.closest('a[href*="/post/"]');
-        if (selfLink) {
-          const lp = postIdFromHref(selfLink.getAttribute('href') || '');
-          if (lp && lp.id !== parsed.id) continue;
-        }
-        const parentText = ((el.parentElement && el.parentElement.textContent) || '').toLowerCase();
-        if (parentText.includes('lượt xem') || parentText.includes('views')) continue;
-        if (!nearSvg(el)) continue;
-        bareValues.push(parseStatNumber(t));
+      collectBareStats(unit, unit, parsed.id).forEach((v, i) => {
+        const kind = statOrder[i];
+        if (kind && !taken.has(kind)) { stats[kind] = v; taken.add(kind); }
+      });
+    }
+    // Lượt 2b: hàng số liệu nằm NGOÀI khung bài — là khối anh em đứng
+    // ngay sau khung (DOM thật có thể đặt thanh tác vụ ngoài
+    // [data-pressable-container]). Dừng ở khung bài kế tiếp để khỏi
+    // lấy nhầm số của bài khác. Chỉ bù những loại còn thiếu.
+    if (taken.size < statOrder.length && unit.parentElement) {
+      const siblings = Array.from(unit.parentElement.children);
+      const start = siblings.indexOf(unit);
+      const extra = [];
+      for (let si = start + 1; si < siblings.length; si++) {
+        const sib = siblings[si];
+        // Dừng ở khung bài kế tiếp (chỉ tính khung pressable/article,
+        // không tính div[tabindex] thường để khỏi bỏ sót hàng số liệu).
+        if (sib.matches && sib.matches('[data-pressable-container], article, [role="article"]')) break;
+        if (sib.querySelector && sib.querySelector('[data-pressable-container], article, [role="article"]')) break;
+        extra.push(...collectBareStats(sib, unit, parsed.id));
+        if (extra.length >= statOrder.length) break;
       }
-      bareValues.forEach((v, i) => {
+      extra.forEach((v, i) => {
         const kind = statOrder[i];
         if (kind && !taken.has(kind)) { stats[kind] = v; taken.add(kind); }
       });

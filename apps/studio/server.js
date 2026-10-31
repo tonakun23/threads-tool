@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { cardHtml } from './card-html.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE);
@@ -26,6 +27,44 @@ const VOICES = [
   { id: 'vi-VN-NamMinhNeural', label: 'Nam Minh (Nam)', gender: 'Nam' },
 ];
 const jobs = new Map();
+
+// Chromium giữ sống cho chụp thẻ replica ở khung xem trước: trước đây
+// mỗi lần chụp là một tiến trình Node mới + một lần mở Chromium mới,
+// tốn vài giây nên khung xem trước dựng thẻ thật rất chậm. Giữ một
+// trình duyệt chung trong tiến trình server, mỗi lần chụp chỉ mở một
+// tab mới rồi đóng — lần chụp sau nhanh hơn hẳn lần đầu. Trình duyệt
+// kẹt thì bỏ hẳn để lần sau mở lại từ đầu.
+let cardBrowser = null;
+let cardBrowserStarting = null;
+async function getCardBrowser() {
+  if (cardBrowser) return cardBrowser;
+  if (!cardBrowserStarting) {
+    cardBrowserStarting = (async () => {
+      const { chromium } = await import('playwright');
+      const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-extensions', '--no-first-run'] });
+      cardBrowser = browser;
+      return browser;
+    })().catch((e) => { cardBrowserStarting = null; throw e; });
+  }
+  return cardBrowserStarting;
+}
+async function shootCardPng(items, outPath) {
+  const browser = await getCardBrowser();
+  const page = await browser.newPage({ viewport: { width: 980, height: 800 }, deviceScaleFactor: 2 });
+  try {
+    await page.setContent(cardHtml(items), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Cho avatar tải xong (tối đa ~1,2s, xong sớm thì thôi); ảnh lỗi
+    // đã có chữ cái dự phòng nên chờ lâu hơn cũng không ích gì.
+    await page.waitForLoadState('networkidle', { timeout: 1200 }).catch(() => {});
+    await page.locator('#card').screenshot({ path: outPath });
+  } catch (e) {
+    try { await page.close().catch(() => {}); } catch { /* bỏ qua */ }
+    try { await browser.close().catch(() => {}); } catch { /* bỏ qua */ }
+    if (cardBrowser === browser) cardBrowser = null;
+    throw e;
+  }
+  await page.close().catch(() => {});
+}
 
 function send(res, code, obj) {
   const body = typeof obj === 'string' ? obj : JSON.stringify(obj);
@@ -93,6 +132,17 @@ function normalizeDataset(raw) {
   // Giữ nguyên thứ tự trong JSON (thứ tự hội thoại), không sắp theo like.
   const comments = posts.filter((p) => p.id !== main.id);
   return { post: main, comments };
+}
+
+// Lấy link bài Threads từ mã embed đã dán (giống parseEmbedCode ở
+// public/app.js): ưu tiên data-text-post-permalink, rồi tới href tới
+// /post/ trong mã. Không phải mã embed thì trả ''.
+function parseEmbedCode(code) {
+  const s = String(code || '');
+  const m = s.match(/data-text-post-permalink=["']([^"']+)["']/i)
+    || s.match(/href=["'](https?:\/\/[^"']*\/post\/[^"']*)["']/i);
+  const url = m ? m[1] : '';
+  return /^https?:\/\//.test(url) && /threads\.(com|net)/i.test(url) && url.includes('/post/') ? url : '';
 }
 
 // Chọn N bình luận tương tác cao nhất (tổng tim + trả lời + đăng lại
@@ -329,30 +379,18 @@ const server = createServer(async (req, res) => {
       if (!items.length) { send(res, 400, { error: 'Cần ít nhất 1 bình luận có nội dung.' }); return; }
       mkdirSync(CARD_PREVIEW, { recursive: true });
       const id = randomUUID().slice(0, 8);
-      const manifestPath = join(CARD_PREVIEW, 'manifest-' + id + '.json');
-      writeFileSync(manifestPath, JSON.stringify([{ id, items: items.map((it) => ({
+      const cleanItems = items.map((it) => ({
         author: { username: String(it.author?.username || 'unknown'), displayName: String(it.author?.displayName || it.author?.username || 'unknown'), isVerified: !!it.author?.isVerified, avatarUrl: String(it.author?.avatarUrl || '') },
         content: String(it.content || ''), timeLabel: String(it.timeLabel || ''),
         stats: { likes: Number(it.stats?.likes || 0), replies: Number(it.stats?.replies || 0), reposts: Number(it.stats?.reposts || 0), shares: Number(it.stats?.shares || 0) },
         depth: Number(it.depth || 0),
-      })) }]), 'utf8');
+      }));
       try {
-        const shotJson = await new Promise((resolveShot, rejectShot) => {
-          const child = spawn(process.execPath, [join(ROOT, 'card-shot.js'), '--manifest', manifestPath, '--out-dir', CARD_PREVIEW], { timeout: 90000 });
-          let out = '', err = '';
-          child.stdout.on('data', (d) => { out += d; });
-          child.stderr.on('data', (d) => { err += d; });
-          child.on('error', rejectShot);
-          child.on('close', (code) => {
-            if (code !== 0) rejectShot(new Error(err.trim().split('\n').pop() || 'card-shot thất bại.'));
-            else resolveShot(out);
-          });
-        });
-        const shot = JSON.parse(shotJson)[0];
-        if (!shot?.ok) { send(res, 502, { error: shot?.error || 'Không dựng được thẻ.' }); return; }
+        await shootCardPng(cleanItems, join(CARD_PREVIEW, id + '.png'));
         send(res, 200, { pngUrl: '/card-preview/' + id + '.png' });
       } catch (e) {
-        send(res, 502, { error: e?.message || String(e) });
+        const msg = e?.message || String(e);
+        send(res, 502, { error: /playwright|Cannot find package/i.test(msg) ? 'Chưa cài playwright. Chạy trong apps/studio: npm install playwright && npx playwright install chromium' : msg });
       }
       return;
     }
@@ -381,6 +419,7 @@ const server = createServer(async (req, res) => {
         return {
           kind: s.kind || 'comment', author: first.author, content: first.content, ttsText: first.ttsText,
           timeLabel: first.timeLabel, stats: first.stats, url: first.url || '',
+          embedCode: String(s.embedCode || '').slice(0, 5000), embedUrl: parseEmbedCode(s.embedCode || ''),
           items: items.length > 1 ? items : undefined,
           meme: s.meme?.id ? { kind: s.meme.kind || 'image', path: resolveUpload(s.meme.id), name: s.meme.name || '' } : null,
         };
@@ -504,6 +543,38 @@ const server = createServer(async (req, res) => {
           }
         }
       }
+      // Đoạn có mã embed dán sẵn: chụp thẻ embed chính thức của đúng URL
+      // đó, dùng thay thẻ thường BẤT KỂ kiểu thẻ đang chọn (ghi đè cả
+      // cardPng của bước replica). Chụp lỗi thì đoạn đó giữ thẻ thường,
+      // ghi chú vào render.log — không làm hỏng cả job.
+      const embedSegs = cleanSegments.map((s, i) => ({ s, i })).filter(({ s }) => s.embedUrl);
+      if (embedSegs.length) {
+        const embedCodeDir = join(jobDir, 'embed-code');
+        mkdirSync(embedCodeDir, { recursive: true });
+        const embedCodeManifest = join(jobDir, 'embed-code-manifest.json');
+        writeFileSync(embedCodeManifest, JSON.stringify(embedSegs.map(({ s, i }) => ({ id: 'embed-' + i, url: s.embedUrl }))), 'utf8');
+        try {
+          const shotJson = await new Promise((resolveShot, rejectShot) => {
+            const child = spawn(process.execPath, [join(ROOT, 'embed-shot.js'), '--manifest', embedCodeManifest, '--out-dir', embedCodeDir], { timeout: 300000 });
+            let out = '', err = '';
+            child.stdout.on('data', (d) => { out += d; });
+            child.stderr.on('data', (d) => { err += d; });
+            child.on('error', rejectShot);
+            child.on('close', (code) => {
+              if (code !== 0) rejectShot(new Error(err.trim().split('\n').pop() || 'embed-shot thất bại.'));
+              else resolveShot(out);
+            });
+          });
+          for (const r of JSON.parse(shotJson)) {
+            const idx = Number(String(r.id || '').replace('embed-', ''));
+            if (r.ok) { cleanSegments[idx].cardPng = r.out; cleanSegments[idx].embedCard = true; }
+            else shotNotes += 'Embed dán sẵn: bỏ qua đoạn ' + (idx + 1) + ' — ' + (r.error || 'không chụp được') + '\n';
+          }
+          writeFileSync(projectPath, JSON.stringify(project, null, 2), 'utf8');
+        } catch (e) {
+          shotNotes += 'Embed dán sẵn: chụp thẻ thất bại, dùng thẻ thường — ' + (e?.message || e) + '\n';
+        }
+      }
       // Chạy render.py bằng python của .venv nếu có (nơi đã cài Pillow
       // + edge-tts theo README) — python hệ thống thường thiếu edge-tts
       // nên giọng đọc rơi về im lặng ("No module named 'edge_tts'").
@@ -534,4 +605,13 @@ const server = createServer(async (req, res) => {
 });
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
-server.listen(PORT, () => console.log(`Threads Comment Studio chạy ở http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Threads Comment Studio chạy ở http://localhost:${PORT}`);
+  // Hâm nóng Chromium nền để lần chụp thẻ thật đầu tiên khỏi chờ mở
+  // trình duyệt; hâm lỗi (chưa cài playwright) thì bỏ qua, lần chụp
+  // đầu sẽ báo rõ lý do.
+  getCardBrowser().catch(() => {});
+});
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => { try { cardBrowser?.close().catch(() => {}); } catch { /* bỏ qua */ } process.exit(0); });
+}

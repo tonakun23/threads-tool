@@ -184,10 +184,12 @@ def render_card(seg: dict, out: Path, settings: dict | None = None) -> None:
         items[i]["depth"] = max(1, items[i]["depth"])
 
     # Thẻ replica: ảnh đã dựng sẵn giống giao diện Threads (cardPng) thì
-    # dùng thẳng, chỉ co về đúng rộng thẻ và giới hạn chiều cao.
+    # dùng thẳng, chỉ co về đúng rộng thẻ và giới hạn chiều cao. Đoạn có
+    # mã embed dán sẵn (embedCard) thì dùng ảnh embed đó BẤT KỂ kiểu
+    # thẻ đang chọn — kể cả kiểu vẽ tay.
     card_style = (settings or {}).get("cardStyle", "embed")
     card_png = seg.get("cardPng") or ""
-    if card_style != "hand" and card_png and Path(card_png).exists():
+    if (card_style != "hand" or seg.get("embedCard")) and card_png and Path(card_png).exists():
         im = Image.open(card_png).convert("RGBA")
         if im.width != CARD_W:
             im = im.resize((CARD_W, max(1, round(im.height * CARD_W / im.width))), Image.LANCZOS)

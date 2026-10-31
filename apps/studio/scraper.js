@@ -10,7 +10,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, basename, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -186,7 +186,16 @@ try {
   const comments = valid.slice(1)
     .filter((c) => c.id !== post.id)
     .slice(0, maxComments);
-  console.log(JSON.stringify({ post, comments, source: 'live', scrapedUrl: page.url() }));
+  // Số liệu bài gốc toàn 0 mà vẫn có bình luận: cấu trúc DOM thật khác
+  // với giả định của parser — lưu chẩn đoán DOM như khi cào rỗng, kèm
+  // tên file trong JSON để giao diện nhắc gửi file đó về sửa.
+  let diagnostic = null;
+  const ps = post.stats || {};
+  if (!ps.likes && !ps.replies && !ps.reposts && !ps.shares && comments.length) {
+    const dbg = await writeScrapeDiagnostics(page, 'zero-stats');
+    if (dbg) diagnostic = basename(dbg);
+  }
+  console.log(JSON.stringify({ post, comments, source: 'live', scrapedUrl: page.url(), ...(diagnostic ? { diagnostic } : {}) }));
   } finally {
     await browser.close();
   }
