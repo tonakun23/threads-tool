@@ -402,7 +402,12 @@ function loadData(data) {
   preview.index = 0;
   const vis = visibleSegments();
   if (vis.length) { markShotPending(vis[0]); renderPreview(); ensureRealShot(vis[0]); }
-  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận tương tác cao nhất (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.` + (data.diagnostic ? ` Số liệu bài gốc đang 0 — tool đã lưu file chẩn đoán DOM tại apps/studio/debug/${data.diagnostic}, gửi mình file đó để sửa đúng cấu trúc thật của trang.` : ''));
+  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận tương tác cao nhất (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.` + (data.diagnostic ? ` Số liệu bài gốc đang 0 — tool đã lưu file chẩn đoán DOM, bấm link “Tải file chẩn đoán DOM” bên dưới để tải và gửi mình file đó.` : ''));
+  const dg = $('#diagnosticLink');
+  if (dg) {
+    if (data.diagnostic) { dg.href = '/debug/' + encodeURIComponent(data.diagnostic); dg.hidden = false; }
+    else dg.hidden = true;
+  }
 }
 
 async function doScrape(mode, extra) {
@@ -446,8 +451,9 @@ $('#btnTtsTest')?.addEventListener('click', async () => {
     const j = await r.json();
     if (j.ok) {
       const engineLabel = j.engine === 'gtts' ? 'giọng Google dự phòng (tiếng Việt, không phải Hoài My/Nam Minh — muốn giọng Hoài My thì cài lại Edge theo lỗi ở dưới, hoặc đợi Microsoft sửa máy chủ cũ)' : j.engine === 'edge-tts-new' ? 'Edge qua máy chủ mới (đúng giọng đã chọn)' : 'Edge (đúng giọng đã chọn)';
-      st.textContent = `✅ Giọng đọc chạy được qua ${engineLabel}: file ${j.seconds} giây — bấm play để nghe thử. Video xuất ra sẽ dùng đúng đường giọng này.`;
+      st.textContent = `✅ Giọng đọc chạy được qua ${engineLabel}: file ${j.seconds} giây — đang phát thử, nếu không nghe thấy thì bấm nút play trên thanh âm thanh bên dưới. Video xuất ra sẽ dùng đúng đường giọng này.`;
       audio.src = j.audioUrl; audio.hidden = false; audio.load();
+      audio.play().catch(() => { st.textContent += ' (Trình duyệt chặn tự phát — bấm nút play trên thanh âm thanh để nghe.)'; });
     } else {
       st.textContent = `❌ Giọng đọc không chạy được trên máy này: ${j.error} — video xuất ra sẽ im lặng (chỉ có hình). Gửi mình dòng này để sửa tiếp.`;
     }
@@ -527,9 +533,11 @@ $('#btnRender').addEventListener('click', async () => {
         clearInterval(poll); btn.disabled = false;
         $('#renderedVideo').src = job.videoUrl; $('#renderedVideo').hidden = false;
         const dl = $('#downloadLink'); dl.href = job.videoUrl; dl.hidden = false; dl.setAttribute('download', '');
-        status($('#renderStatus'), 'Xong! Xem trước ở trên, bấm “Tải video xuống” để lấy file MP4.');
+        const ll = $('#logLink'); ll.href = '/api/jobs/' + j.id + '/log'; ll.hidden = false;
+        status($('#renderStatus'), 'Xong! Xem trước ở trên, bấm “Tải video xuống” để lấy file MP4.' + (job.ttsWarning ? ' ⚠ ' + job.ttsWarning : ''));
       } else if (job.status === 'error') {
         clearInterval(poll); btn.disabled = false;
+        const ll = $('#logLink'); ll.href = '/api/jobs/' + j.id + '/log'; ll.hidden = false;
         status($('#renderStatus'), 'Lỗi: ' + (job.error || 'Không rõ.'));
       }
     }, 3000);

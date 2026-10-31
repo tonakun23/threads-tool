@@ -31,6 +31,7 @@
       <button id="btnPaste">Cào từ JSON đã dán</button>
     </div>
     <p id="scrapeStatus" class="status" role="status"></p>
+    <p><a id="diagnosticLink" href="#" hidden>Tải file chẩn đoán DOM để gửi mình sửa lỗi số liệu</a></p>
   </section>
 
   <section class="card">
@@ -85,7 +86,7 @@
     <button id="btnRender" class="primary big">🎬 Xuất Video Hoàn Chỉnh</button>
     <p id="renderStatus" class="status" role="status"></p>
     <video id="renderedVideo" controls playsinline hidden></video>
-    <p><a id="downloadLink" href="#" hidden>Tải video xuống</a></p>
+    <p><a id="downloadLink" href="#" hidden>Tải video xuống</a> · <a id="logLink" href="#" hidden>Tải nhật ký render (render.log)</a></p>
   </section>
   <footer><p>Fork nâng cấp từ <a href="https://github.com/Chuanyin1202/threads-toolkit">Chuanyin1202/threads-toolkit</a> (Apache-2.0). Logic trích xuất ở <code>threads-parse.js</code> đã viết lại cho trang Threads hiện tại: 1 bài = 1 đơn vị, giữ thứ tự hội thoại và chuỗi trả lời lồng nhau; Studio là phần mới.</p></footer>
 </div>

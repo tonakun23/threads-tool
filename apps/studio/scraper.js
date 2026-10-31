@@ -16,9 +16,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Khi trích xuất ra 0 bài: lưu chẩn đoán DOM thật vào debug/ để sửa
-// đúng cấu trúc trang thay vì đoán. File nằm trên máy người chạy, chỉ
-// gửi đi khi họ tự gửi — không tự upload đâu cả.
+// Khi trích xuất ra 0 bài, hoặc bài gốc stats toàn 0 mà vẫn có bình
+// luận: lưu chẩn đoán DOM thật vào debug/ để sửa đúng cấu trúc trang
+// thay vì đoán. File nằm trên máy người chạy, chỉ gửi đi khi họ tự
+// gửi — không tự upload đâu cả.
 async function writeScrapeDiagnostics(page, reason) {
   let diag = null;
   try {
@@ -53,17 +54,34 @@ async function writeScrapeDiagnostics(page, reason) {
           hasUnit: !!unit,
           candCount: cands.length,
           candTexts: cands.slice(0, 6).map((e) => (e.textContent || '').trim().slice(0, 100)),
-          unitHtml: unit ? unit.outerHTML.slice(0, 2000) : '',
+          unitHtml: unit ? unit.outerHTML.slice(0, 4000) : '',
           chain,
         });
       }
       // Mẫu nút thống kê trong khung bài đầu tiên: để sửa lỗi stats
       // toàn 0 — cần biết nút like/reply là thẻ gì, số nằm ở đâu.
-      // Thêm cả các khối số trần cạnh SVG (dạng DOM thật 31/10).
+      // Thêm cả các khối số trần cạnh SVG (dạng DOM thật 31/10) và
+      // các khối ANH EM sau khung bài (hàng số liệu có thể nằm ngoài
+      // khung): nếu chỉ ghi trong khung thì file chẩn đoán không chứng
+      // minh được gì khi stats nằm ngoài khung.
       let statButtons = [];
       let bareNumbers = [];
+      let siblingRows = [];
       const probe = document.querySelector('[data-pressable-container]');
       if (probe) {
+        const probeScopes = [probe];
+        let sib = probe.nextElementSibling, n = 0;
+        while (sib && n < 3) {
+          if (sib.matches && sib.matches('[data-pressable-container], article, [role="article"]')) break;
+          probeScopes.push(sib);
+          siblingRows.push({
+            tag: sib.tagName,
+            cls: String(sib.className || '').slice(0, 80),
+            textHead: (sib.textContent || '').trim().slice(0, 200),
+            hasSvg: !!sib.querySelector('svg'),
+          });
+          sib = sib.nextElementSibling; n++;
+        }
         statButtons = Array.from(probe.querySelectorAll('div[role="button"], button, a, svg'))
           .map((b) => ({
             tag: b.tagName,
@@ -73,20 +91,28 @@ async function writeScrapeDiagnostics(page, reason) {
           }))
           .filter((b) => b.aria || /\d/.test(b.text))
           .slice(0, 14);
-        bareNumbers = Array.from(probe.querySelectorAll('div, span'))
-          .filter((el) => /^[\d][\d.,\s]*(triệu|nghìn|tr|k|m)?$/i.test((el.textContent || '').trim()))
-          .slice(0, 20)
-          .map((el) => ({
-            tag: el.tagName,
-            text: (el.textContent || '').trim(),
-            hasSvg: !!(el.parentElement && el.parentElement.querySelector('svg')),
-          }));
+        const seenNums = new Set();
+        for (const scope of probeScopes) {
+          for (const el of scope.querySelectorAll('div, span, a, p')) {
+            if (seenNums.has(el)) continue; seenNums.add(el);
+            if (!/^[\d][\d.,\s]*(triệu|nghìn|tr|k|m)?$/i.test((el.textContent || '').trim())) continue;
+            bareNumbers.push({
+              tag: el.tagName,
+              text: (el.textContent || '').trim(),
+              hasSvg: !!(el.parentElement && el.parentElement.querySelector('svg')),
+              outsideUnit: scope !== probe,
+            });
+            if (bareNumbers.length >= 30) break;
+          }
+          if (bareNumbers.length >= 30) break;
+        }
       }
       return {
         url: location.href,
         title: document.title,
         statButtons,
         bareNumbers,
+        siblingRows,
         counts: {
           postLinks: links.length,
           tabindexUnits: document.querySelectorAll('div[tabindex="0"]').length,

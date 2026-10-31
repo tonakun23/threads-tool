@@ -19,6 +19,7 @@ const OUT = join(ROOT, 'out');
 const JOBS = join(ROOT, 'jobs');
 const EMBED_PREVIEW = join(ROOT, 'embed-preview');
 const CARD_PREVIEW = join(ROOT, 'card-preview');
+const DEBUG_DIR = join(ROOT, 'debug');
 for (const d of [UPLOADS, OUT, JOBS]) mkdirSync(d, { recursive: true });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.svg': 'image/svg+xml' };
@@ -217,12 +218,43 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/demo') {
       send(res, 200, JSON.parse(readFileSync(join(ROOT, 'demo-data.json'), 'utf8'))); return;
     }
+    if (req.method === 'GET' && p.startsWith('/debug/')) {
+      // File chẩn đoán DOM (scrape-debug-*.json): chỉ phục vụ đúng file
+      // .json trong thư mục debug, lấy theo basename để khỏi dò thư mục.
+      const name = basename(decodeURIComponent(p));
+      const f = join(DEBUG_DIR, name);
+      if (!name.endsWith('.json') || !existsSync(f)) { send(res, 404, { error: 'Không tìm thấy file chẩn đoán.' }); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="${name}"` });
+      createReadStream(f).pipe(res); return;
+    }
+    if (req.method === 'GET' && p.startsWith('/api/jobs/') && p.endsWith('/log')) {
+      // Nhật ký render của 1 job (render.log): để biết giọng đọc/thẻ
+      // có rơi về dự phòng không mà không cần mò thư mục jobs/.
+      const parts = p.split('/').filter(Boolean);
+      const id = parts[2] || '';
+      if (!/^[A-Za-z0-9-]+$/.test(id)) { send(res, 404, { error: 'Không tìm thấy job.' }); return; }
+      const f = join(JOBS, id, 'render.log');
+      if (!existsSync(f)) { send(res, 404, { error: 'Job này chưa có nhật ký render.' }); return; }
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Disposition': `attachment; filename="render-${id}.log"` });
+      createReadStream(f).pipe(res); return;
+    }
     if (req.method === 'GET' && p.startsWith('/api/jobs/')) {
       const id = basename(p);
       const job = jobs.get(id);
       if (job) { send(res, 200, job); return; }
       const f = join(JOBS, id, 'status.json');
-      if (existsSync(f)) { send(res, 200, JSON.parse(readFileSync(f, 'utf8'))); return; }
+      if (existsSync(f)) {
+        const saved = JSON.parse(readFileSync(f, 'utf8'));
+        // Job do phiên bản cũ (hoặc server đã khởi động lại) lưu mà
+        // chưa có cảnh báo im lặng: suy ra từ render.log lúc đọc.
+        if (saved.status === 'done' && !saved.ttsWarning) {
+          try {
+            const logText = readFileSync(join(JOBS, id, 'render.log'), 'utf8');
+            if (logText.includes('dùng im lặng')) saved.ttsWarning = 'Video có đoạn IM LẶNG vì giọng đọc không tạo được ở đoạn đó — bấm “Tải nhật ký render” bên dưới để xem lý do thật, hoặc bấm “Thử giọng đọc” để kiểm tra lại giọng trên máy này.';
+          } catch { /* chưa có log thì thôi */ }
+        }
+        send(res, 200, saved); return;
+      }
       send(res, 404, { error: 'Không tìm thấy job.' }); return;
     }
     if (req.method === 'POST' && p === '/api/upload') {
@@ -590,6 +622,11 @@ const server = createServer(async (req, res) => {
       child.on('close', (code) => {
         if (code === 0 && existsSync(outPath)) {
           job.status = 'done'; job.videoUrl = `/out/${basename(outPath)}`; job.progress = 'Xong.';
+          // Giọng đọc rơi về im lặng ở đoạn nào thì báo thẳng trong
+          // trạng thái job để người dùng không tưởng video có tiếng.
+          if (log.includes('dùng im lặng')) {
+            job.ttsWarning = 'Video có đoạn IM LẶNG vì giọng đọc không tạo được ở đoạn đó — bấm “Tải nhật ký render” bên dưới để xem lý do thật, hoặc bấm “Thử giọng đọc” để kiểm tra lại giọng trên máy này.';
+          }
         } else {
           job.status = 'error'; job.error = 'Dựng video thất bại. Xem render.log trong thư mục jobs/' + id + '. Lỗi cuối: ' + log.trim().split('\n').slice(-3).join(' ');
         }
