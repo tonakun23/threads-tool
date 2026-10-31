@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threads Comment Studio — Video đọc bình luận 9:16</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header>
+  <h1>Threads Comment Studio</h1>
+  <p>Dán link Threads → lấy nguyên bài gốc + bình luận → sửa kịch bản → xuất video 9:16 có watermark, video nền, meme, nhạc nền và giọng đọc AI.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>1 · Cào link bài viết &amp; bình luận gốc Threads</h2>
+    <p class="hint">Chỉ lấy dữ liệu công khai. Tôn trọng điều khoản của Threads, đừng cào liên tục.</p>
+    <div class="row">
+      <input id="postUrl" type="url" placeholder="https://www.threads.com/@username/post/…  hoặc  https://www.threads.com/share/…">
+      <label>Số bình luận <select id="maxComments"><option>7</option><option selected>10</option><option>15</option><option>20</option></select></label>
+    </div>
+    <div class="row">
+      <button id="btnScrape" class="primary">Cào link</button>
+      <button id="btnDemo">Dùng dữ liệu demo</button>
+      <button id="btnPasteToggle" type="button">Dán JSON dataset ↕</button>
+    </div>
+    <div id="pasteBox" hidden>
+      <textarea id="pasteJson" rows="5" placeholder='Dán JSON dataset của threads-toolkit (mảng post) hoặc {"post":…, "comments":[…]} rồi bấm “Cào từ JSON đã dán”.'></textarea>
+      <button id="btnPaste">Cào từ JSON đã dán</button>
+    </div>
+    <p id="scrapeStatus" class="status" role="status"></p>
+  </section>
+
+  <section class="card">
+    <h2>2 · Kịch bản phản cảnh <span class="sub">(hiển thị VS giọng đọc)</span></h2>
+    <p class="hint">Giữ nguyên câu chữ từ trên thì nên để 2 ô giống nhau. Muốn giọng đọc khác chữ hiện trên thẻ thì sửa riêng ô bên phải.</p>
+    <div class="row">
+      <strong>Kho meme</strong>
+      <input id="memeFile" type="file" accept="image/*,video/*">
+      <button id="btnMemeUpload">Thêm meme vào kho</button>
+    </div>
+    <ul id="memeLibrary" class="meme-library"></ul>
+    <div id="segments"></div>
+    <button id="btnAddComment">+ Thêm Comment</button>
+  </section>
+
+  <section class="card">
+    <h2>3 · Cấu hình xuất video &amp; âm thanh</h2>
+    <div class="grid">
+      <label>Giọng đọc AI
+        <select id="voice"><option value="vi-VN-HoaiMyNeural">Hoài My (Nữ — Chuẩn)</option><option value="vi-VN-NamMinhNeural">Nam Minh (Nam — Chuẩn)</option></select>
+      </label>
+      <label>Tốc độ đọc: <span id="rateLabel">+20%</span>
+        <input id="rate" type="range" min="-30" max="60" value="20" step="5">
+      </label>
+      <label>Watermark chống re-up
+        <input id="watermark" type="text" placeholder="Fanpage: nghịch lý" value="Fanpage: nghịch lý">
+      </label>
+      <label>Vị trí watermark
+        <select id="watermarkPosition"><option value="top">Trên cùng</option><option value="bottom">Dưới cùng</option><option value="both">Cả trên + dưới</option></select>
+      </label>
+      <label>Video nền (mp4, lặp lại)
+        <input id="bgVideoFile" type="file" accept="video/*"><span class="file-status" id="bgVideoStatus">Chưa chọn — dùng nền gradient.</span>
+      </label>
+      <label>Ảnh nền (nếu không có video nền)
+        <input id="bgImageFile" type="file" accept="image/*"><span class="file-status" id="bgImageStatus">Chưa chọn.</span>
+      </label>
+      <label>Nhạc nền (BGM, mp3)
+        <input id="bgmFile" type="file" accept="audio/*"><span class="file-status" id="bgmStatus">Chưa chọn.</span>
+      </label>
+      <label>Âm lượng BGM: <span id="bgmLabel">12%</span>
+        <input id="bgmVolume" type="range" min="0" max="50" value="12" step="1">
+      </label>
+    </div>
+    <p class="hint">Định dạng xuất: 1080p Full HD · 9:16 Shorts/TikTok · H.264 + AAC. Giọng đọc dùng Edge TTS miễn phí (cần mạng tới Edge trên máy chạy render).</p>
+    <button id="btnRender" class="primary big">🎬 Xuất Video Hoàn Chỉnh</button>
+    <p id="renderStatus" class="status" role="status"></p>
+    <video id="preview" controls playsinline hidden></video>
+    <p><a id="downloadLink" href="#" hidden>Tải video xuống</a></p>
+  </section>
+  <footer><p>Fork nâng cấp từ <a href="https://github.com/Chuanyin1202/threads-toolkit">Chuanyin1202/threads-toolkit</a> (Apache-2.0). Phần cào giữ nguyên logic của toolkit gốc; Studio là phần mới.</p></footer>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

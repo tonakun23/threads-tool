@@ -1,0 +1,42 @@
+{
+	"name": "threads-toolkit",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Powerful Threads scraper - search posts, fetch profiles, and extract data.",
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"dependencies": {
+		"apify": "^3.4.2",
+		"crawlee": "^3.13.8",
+		"playwright": "1.59.1"
+	},
+	"devDependencies": {
+		"@apify/eslint-config": "^1.0.0",
+		"@apify/tsconfig": "^0.1.1",
+		"@types/node": "^22.15.32",
+		"eslint": "^9.29.0",
+		"eslint-config-prettier": "^10.1.5",
+		"globals": "^16.2.0",
+		"prettier": "^3.5.3",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "^8.34.1"
+	},
+	"scripts": {
+		"start": "npm run start:dev",
+		"start:prod": "node dist/main.js",
+		"start:dev": "tsx src/main.ts",
+		"build": "tsc",
+		"lint": "eslint",
+		"lint:fix": "eslint --fix",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"test": "node --import tsx --test test/**/*.test.ts",
+		"smoke:live": "node --import tsx scripts/smoke-live.mjs",
+		"smoke:auth": "node --import tsx scripts/smoke-auth.mjs",
+		"postinstall": "npx crawlee install-playwright-browsers"
+	},
+	"author": "It's not you it's me",
+	"license": "Apache-2.0"
+}

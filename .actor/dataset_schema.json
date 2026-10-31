@@ -1,0 +1,90 @@
+{
+    "actorSpecification": 1,
+    "fields": {
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "url": { "type": "string" },
+            "content": { "type": "string" },
+            "timestamp": { "type": "string" },
+            "author": {
+                "type": "object",
+                "properties": {
+                    "username": { "type": "string" },
+                    "displayName": { "type": "string" },
+                    "profileUrl": { "type": "string" },
+                    "avatarUrl": { "type": "string" },
+                    "isVerified": { "type": "boolean" }
+                }
+            },
+            "stats": {
+                "type": "object",
+                "properties": {
+                    "likes": { "type": "integer" },
+                    "replies": { "type": "integer" },
+                    "reposts": { "type": "integer" }
+                }
+            },
+            "images": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "videos": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "links": {
+                "type": "array",
+                "items": { "type": "string" }
+            },
+            "quotedPost": {
+                "type": "object"
+            }
+        }
+    },
+    "views": {
+        "overview": {
+            "title": "Posts Overview",
+            "transformation": {
+                "fields": [
+                    "author.username",
+                    "content",
+                    "stats.likes",
+                    "stats.replies",
+                    "timestamp",
+                    "url"
+                ],
+                "flatten": ["author", "stats"]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "author.username": {
+                        "label": "Author",
+                        "format": "text"
+                    },
+                    "content": {
+                        "label": "Content",
+                        "format": "text"
+                    },
+                    "stats.likes": {
+                        "label": "Likes",
+                        "format": "number"
+                    },
+                    "stats.replies": {
+                        "label": "Replies",
+                        "format": "number"
+                    },
+                    "timestamp": {
+                        "label": "Time",
+                        "format": "date"
+                    },
+                    "url": {
+                        "label": "Link",
+                        "format": "link"
+                    }
+                }
+            }
+        }
+    }
+}

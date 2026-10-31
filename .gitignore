@@ -1,0 +1,24 @@
+# This file tells Git which files shouldn't be added to source control
+
+.DS_Store
+.idea
+.vscode
+.zed
+dist
+tsconfig.tsbuildinfo
+node_modules
+apify_storage
+storage
+
+# Added by Apify CLI
+.venv
+
+# Threads Comment Studio (apps/studio)
+apps/studio/uploads/
+apps/studio/out/
+apps/studio/jobs/
+apps/studio/.venv/
+apps/studio/node_modules/
+
+__pycache__/
+*.pyc

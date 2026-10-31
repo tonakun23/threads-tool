@@ -1,0 +1,11 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "Threads Toolkit Output",
+    "properties": {
+        "posts": {
+            "type": "string",
+            "title": "Posts Dataset",
+            "template": "{{links.apiDefaultDatasetUrl}}/items"
+        }
+    }
+}

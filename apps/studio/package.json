@@ -1,0 +1,1 @@
+{"description":"Studio dựng video đọc bình luận Threads 9:16: cào bài + bình luận gốc, sửa kịch bản hiển thị/giọng đọc, chèn meme, watermark, video nền, BGM và giọng đọc AI.","engines":{"node":">=20"},"name":"threads-comment-studio","private":true,"scripts":{"dev":"node server.js","start":"node server.js"},"type":"module","version":"1.0.0"}
