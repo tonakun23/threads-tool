@@ -90,11 +90,11 @@ async function uploadFile(file) {
 }
 
 function makeSegment(author, content, stats, timeLabel, kind, timestamp, url) {
-  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: cleanTtsText(content || ''), timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', embedCode: '', include: true };
+  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: cleanTtsText(content || ''), timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', embedCode: '', voiceAudio: null, include: true };
 }
 function makeChainSegment(posts) {
   return {
-    key: ++segCounter, kind: 'chain', memeId: '', embedCode: '', include: true,
+    key: ++segCounter, kind: 'chain', memeId: '', embedCode: '', voiceAudio: null, include: true,
     items: posts.map((p) => ({
       author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified, avatarUrl: p.author?.avatarUrl || '' },
       content: p.content || '', ttsText: cleanTtsText(p.content || ''),
@@ -228,14 +228,22 @@ function scheduleShotRefresh(seg) {
 // đoạn đang xem, đồng bộ hai chiều với mục 2. Chỉ dựng lại khi đổi
 // đoạn (khỏi mất vị trí gõ); khi sửa ở mục 2 thì đồng bộ giá trị
 // vào các ô không đang được gõ.
+function segEstDuration(seg, rate) {
+  // Đoạn dùng file âm thanh tự chèn thì dài bằng file đó, không ước
+  // lượng theo chữ đọc nữa.
+  const va = seg.voiceAudio;
+  if (va && va.seconds) return va.seconds;
+  return estimateDuration(segText(seg), rate);
+}
 function renderPreviewTtsBox(seg) {
   const box = $('#previewTtsBox');
   if (!box) return;
   const items = seg ? segItems(seg) : [];
-  const key = seg ? seg.key + ':' + items.length : 'none';
+  const key = seg ? seg.key + ':' + items.length + ':' + (seg.voiceAudio ? 'va' : '') : 'none';
   if (preview.lastTtsKey !== key) {
     preview.lastTtsKey = key;
-    box.innerHTML = items.map((it, i) => `<label class="preview-tts-item"><span>Chữ đọc · @${esc(it.author.username)}</span><textarea class="preview-tts-ta" data-item="${i}" rows="2" placeholder="Để trống thì đoạn này im lặng">${esc(it.ttsText ?? it.content)}</textarea></label>`).join('');
+    const note = seg && seg.voiceAudio ? '<p class="hint" style="margin:0 0 8px">Đoạn này dùng file âm thanh tự chèn — các ô chữ đọc bên dưới không dùng tới; xóa file thì giọng AI đọc lại.</p>' : '';
+    box.innerHTML = note + items.map((it, i) => `<label class="preview-tts-item"><span>Chữ đọc · @${esc(it.author.username)}</span><textarea class="preview-tts-ta" data-item="${i}" rows="2" placeholder="Để trống thì đoạn này im lặng">${esc(it.ttsText ?? it.content)}</textarea></label>`).join('');
     box.querySelectorAll('.preview-tts-ta').forEach((ta) => ta.addEventListener('input', (e) => {
       const it = items[Number(e.target.dataset.item)];
       if (it) { it.ttsText = e.target.value; renderSegments(); }
@@ -323,7 +331,7 @@ function renderPreview() {
   const kindLabel = seg.kind === 'post' ? 'BÀI GỐC' : (items.length > 1 ? `CHUỖI · ${items.length} BÌNH LUẬN` : 'BÌNH LUẬN');
   $('#previewBadge').textContent = `${preview.index + 1} / ${segs.length} · ${kindLabel}`;
   const rate = parseInt($('#rate').value, 10) || 0;
-  const durs = segs.map((s) => estimateDuration(segText(s), rate));
+  const durs = segs.map((s) => segEstDuration(s, rate));
   const total = durs.reduce((a, b) => a + b, 0);
   $('#previewInfo').textContent = `Đoạn này khoảng ${durs[preview.index].toFixed(1)} giây (ước lượng theo giọng đọc). Cả video khoảng ${total.toFixed(1)} giây, chưa tính thời gian render thật.`;
   if (embedShotView.shots) $('#previewInfo').textContent += parseEmbedCode(seg.embedCode || '') ? ' Đang hiện thẻ embed Threads chính thức từ mã embed đã dán cho đoạn này — đúng thẻ sẽ dùng trong video.' : ' Đang hiện thẻ thật giống Threads — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ này.';
@@ -365,7 +373,7 @@ function playPreviewStep() {
   if (preview.index >= segs.length - 1) { stopPreviewPlay(); return; }
   const seg = segs[preview.index];
   const rate = parseInt($('#rate').value, 10) || 0;
-  preview.timer = setTimeout(() => { preview.index += 1; renderPreview(); playPreviewStep(); }, estimateDuration(segText(seg), rate) * 1000);
+  preview.timer = setTimeout(() => { preview.index += 1; renderPreview(); playPreviewStep(); }, segEstDuration(seg, rate) * 1000);
 }
 function togglePreviewPlay() {
   if (preview.playing) { stopPreviewPlay(); return; }
@@ -414,7 +422,13 @@ function renderSegments() {
       <label>Embed Threads thay thẻ này (dán mã embed, để trống thì dùng thẻ thường):
         <textarea class="seg-embed" rows="2" placeholder="Dán mã <blockquote class=&quot;text-post-media&quot; ...> lấy từ nút … → Get embed code của bài Threads">${esc(seg.embedCode || '')}</textarea>
       </label>
-      <p class="hint seg-embed-status" style="margin:0"></p>`;
+      <p class="hint seg-embed-status" style="margin:0"></p>
+      <label>Âm thanh tự chèn thay giọng AI (để trống thì dùng giọng AI):
+        <input type="file" class="seg-voice-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac">
+      </label>
+      <p class="hint seg-voice-status" style="margin:0"></p>
+      <audio class="seg-voice-preview" controls hidden></audio>
+      <p style="margin:6px 0 0"><button type="button" class="seg-voice-clear" hidden>Xóa file, dùng lại giọng AI</button></p>`;
     div.querySelectorAll('.seg-content').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].content = e.target.value; renderPreview(); scheduleShotRefresh(seg); }));
     div.querySelectorAll('.seg-tts').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].ttsText = e.target.value; renderPreview(); }));
     div.querySelector('.seg-include').addEventListener('change', (e) => { seg.include = e.target.checked; renderPreview(); });
@@ -429,6 +443,35 @@ function renderSegments() {
     };
     embedTa.addEventListener('input', (e) => { seg.embedCode = e.target.value; refreshEmbedStatus(); renderPreview(); scheduleShotRefresh(seg); });
     refreshEmbedStatus();
+    const voiceFile = div.querySelector('.seg-voice-file');
+    const voiceStatus = div.querySelector('.seg-voice-status');
+    const voicePreview = div.querySelector('.seg-voice-preview');
+    const voiceClear = div.querySelector('.seg-voice-clear');
+    const refreshVoiceUI = () => {
+      const va = seg.voiceAudio;
+      if (va) {
+        voiceStatus.textContent = `✓ Đoạn này dùng file âm thanh của anh: ${va.name}${va.seconds ? ` (${va.seconds.toFixed(1)} giây)` : ''} — không dùng giọng AI.`;
+        voicePreview.src = uploadUrl(va); voicePreview.hidden = false; voiceClear.hidden = false;
+      } else {
+        voiceStatus.textContent = '';
+        voicePreview.removeAttribute('src'); voicePreview.load(); voicePreview.hidden = true; voiceClear.hidden = true;
+      }
+    };
+    voiceFile.addEventListener('change', async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      voiceStatus.textContent = 'Đang tải file âm thanh lên…';
+      try {
+        const j = await uploadFile(f);
+        seg.voiceAudio = { id: j.id, name: j.name };
+        // Lấy thời lượng file để ước lượng độ dài đoạn trong khung xem trước.
+        const probe = new Audio(uploadUrl(seg.voiceAudio));
+        probe.addEventListener('loadedmetadata', () => { seg.voiceAudio.seconds = probe.duration || 0; refreshVoiceUI(); renderPreview(); });
+        refreshVoiceUI(); renderPreview();
+      } catch (err) { voiceStatus.textContent = '❌ Tải file thất bại: ' + err.message; }
+      e.target.value = '';
+    });
+    voiceClear.addEventListener('click', () => { seg.voiceAudio = null; refreshVoiceUI(); renderPreview(); });
+    refreshVoiceUI();
     div.querySelector('.seg-view').addEventListener('click', () => { const vis = visibleSegments(); const idx = vis.indexOf(seg); if (idx >= 0) setPreviewIndex(idx); document.querySelector('.preview-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     div.querySelector('.seg-del').addEventListener('click', () => { state.segments = state.segments.filter((s) => s !== seg); renderSegments(); });
     div.querySelector('.seg-up').addEventListener('click', () => { const j = state.segments.indexOf(seg); if (j > 0) { [state.segments[j - 1], state.segments[j]] = [state.segments[j], state.segments[j - 1]]; renderSegments(); } });
@@ -554,6 +597,7 @@ $('#btnRender').addEventListener('click', async () => {
       kind: s.kind, author: first.author, content: first.content, ttsText: first.ttsText,
       timeLabel: first.timeLabel, stats: first.stats, url: first.url || '', items: items.length > 1 ? items : undefined,
       embedCode: s.embedCode || '',
+      voiceAudio: s.voiceAudio ? { id: s.voiceAudio.id, name: s.voiceAudio.name } : null,
       meme: s.memeId ? (() => { const m = state.memes.find((x) => x.id === s.memeId); return m ? { id: m.id, kind: m.kind, name: m.name } : null; })() : null,
     };
   });

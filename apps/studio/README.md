@@ -78,7 +78,7 @@ npx playwright install chromium
 chủ cũ `speech.platform.bing.com`; (2) Edge TTS qua máy chủ mới
 `api.msedgeservices.com` — Microsoft đã chuyển Read Aloud sang đây từ
 10/2026, máy chủ cũ trả 403 hoặc "No audio was received" ở nhiều khu vực;
-(3) gTTS (Google, tiếng Việt, cần `pip install gtts`) — giọng Google,
+(3) gTTS (Google, tiếng Việt, có sẵn trong `requirements.txt`) — giọng Google,
 khác Hoài My/Nam Minh. Miễn phí, không cần API key. Cả 3 đều lỗi thì
 render vẫn xong nhưng đoạn đó im lặng với thời lượng ước lượng theo độ
 dài chữ — log ghi rõ từng lượt lỗi. Nút "🔊 Thử giọng đọc" trên giao

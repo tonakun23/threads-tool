@@ -436,6 +436,7 @@ const server = createServer(async (req, res) => {
         const hit = readdirSync(UPLOADS).find((f) => f.startsWith(String(id) + '-'));
         return hit ? join(UPLOADS, hit) : null;
       };
+      const voiceMissing = [];
       const cleanSegments = segments.map((s) => {
         const cleanItem = (it) => ({
           author: { username: String(it.author?.username || 'unknown').slice(0, 40), displayName: String(it.author?.displayName || it.author?.username || 'unknown').slice(0, 60), isVerified: !!it.author?.isVerified, avatarUrl: String(it.author?.avatarUrl || '').slice(0, 500) },
@@ -454,8 +455,17 @@ const server = createServer(async (req, res) => {
           embedCode: String(s.embedCode || '').slice(0, 5000), embedUrl: parseEmbedCode(s.embedCode || ''),
           items: items.length > 1 ? items : undefined,
           meme: s.meme?.id ? { kind: s.meme.kind || 'image', path: resolveUpload(s.meme.id), name: s.meme.name || '' } : null,
+          // Âm thanh tự chèn: phân giải id upload thành đường dẫn thật
+          // để render.py dùng thay giọng AI; không tìm thấy file thì
+          // null và ghi chú để đoạn đó rơi về giọng AI.
+          voiceAudio: (() => {
+            if (!s.voiceAudio?.id) return null;
+            const p = resolveUpload(s.voiceAudio.id);
+            if (!p) voiceMissing.push(String(s.voiceAudio.name || s.voiceAudio.id));
+            return p ? { path: p, name: String(s.voiceAudio.name || '') } : null;
+          })(),
         };
-      }).filter((s) => (s.items ? s.items.some((it) => it.content.trim()) : s.content.trim()));
+      }).filter((s) => (s.items ? s.items.some((it) => it.content.trim()) : s.content.trim()) || s.voiceAudio);
       if (!cleanSegments.length) { send(res, 400, { error: 'Các đoạn đều trống nội dung.' }); return; }
       const id = randomUUID().slice(0, 8);
       const jobDir = join(JOBS, id);
@@ -484,6 +494,7 @@ const server = createServer(async (req, res) => {
       // Ghi chú chụp/dựng thẻ (nếu lỗi) — giữ trong biến để không bị
       // render.log của render.py ghi đè mất (nó writeFileSync lại file).
       let shotNotes = '';
+      for (const name of voiceMissing) shotNotes += 'Âm thanh tự chèn: không tìm thấy file "' + name + '" — đoạn đó dùng giọng AI thay thế.\n';
       // Thẻ replica: dựng lại giống giao diện Threads bản tối cho từng
       // đoạn TRƯỚC khi render.py chạy. Dựng lỗi thì đoạn đó tự rơi về
       // thẻ vẽ tay trong render.py (ghi chú vào render.log).

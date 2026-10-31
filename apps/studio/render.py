@@ -333,6 +333,24 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
     text = " ".join(parts).strip()
     voice = settings.get("voice", "vi-VN-HoaiMyNeural")
     rate = int(settings.get("ratePercent", 20))
+    # Âm thanh tự chèn: dùng thẳng file của người dùng, chuẩn hóa về
+    # mp3 để phần trộn nhạc phía sau xử lý như file giọng đọc thường.
+    # Chuẩn hóa lỗi thì rơi xuống giọng AI như bình thường.
+    va = seg.get("voiceAudio") or {}
+    va_path = va.get("path") or ""
+    if va_path and Path(va_path).exists():
+        try:
+            run(["ffmpeg", "-y", "-i", str(va_path), "-vn",
+                 "-ar", "44100", "-ac", "2", "-c:a", "libmp3lame", "-q:a", "4", str(out)])
+            dur = ffprobe_duration(out)
+            if dur > 0:
+                print(f"Âm thanh tự chèn ({va.get('name') or Path(va_path).name}, {dur:.1f}s).",
+                      flush=True)
+                return dur
+            print("Âm thanh tự chèn không đọc được thời lượng, dùng giọng AI thay thế.",
+                  flush=True)
+        except Exception as e:
+            print(f"Âm thanh tự chèn lỗi ({e}), dùng giọng AI thay thế.", flush=True)
     if not text:
         # Không còn chữ để đọc: im lặng, khỏi gọi TTS và khỏi đọc câu
         # giữ chỗ "(không có nội dung đọc)".
