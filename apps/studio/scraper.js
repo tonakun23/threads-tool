@@ -1,24 +1,27 @@
 /**
  * Cào 1 bài Threads + các bình luận (replies) bằng Playwright.
- * Tái dùng chiến lược của src/utils/parser.ts: tìm link /post/, đi ngược
- * lên container có nút thống kê, đọc text trong div[dir="auto"].
+ * Logic trích xuất nằm ở threads-parse.js (dùng chung cho test jsdom):
+ * 1 bài = 1 đơn vị div[tabindex="0"], giữ thứ tự trang, giữ chuỗi
+ * trả lời lồng nhau qua parentId/depth, lọc lượt xem/giờ/nhãn.
  *
  * Chỉ lấy dữ liệu công khai, có delay + cuộn từ từ (đừng spam request).
  * Chạy: node scraper.js "<url>" <maxComments>
  * In ra JSON { post, comments } lên stdout. Lỗi in ra stderr + exit 1.
  */
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const parseNum = (s) => {
-  if (!s) return 0;
-  const m = String(s).replace(/,/g, '').match(/([\d.]+)\s*([KkMm]?)/);
-  if (!m) return 0;
-  let n = parseFloat(m[1]);
-  if (m[2].toLowerCase() === 'k') n *= 1000;
-  if (m[2].toLowerCase() === 'm') n *= 1000000;
-  return Math.round(n);
-};
+
+// threads-parse.js là module thuần, không import gì: bỏ từ khóa export
+// để chạy được trong trang qua page.evaluate (chuỗi).
+const parseSrc = readFileSync(join(HERE, 'threads-parse.js'), 'utf8')
+  .replace(/^export\s+/gm, '')
+  .replace(/^import[^;]+;$/gm, '');
+const EXTRACT_EXPR = `(function () { ${parseSrc}; return extractPosts(document); })()`;
 
 function normalizeUrl(raw) {
   let u = (raw || '').trim();
@@ -67,68 +70,15 @@ try {
     if (after >= maxComments + 1 && after === before) break;
   }
 
-  const posts = await page.evaluate(() => {
-    const seen = new Set();
-    const out = [];
-    const links = Array.from(document.querySelectorAll('a[href*="/post/"]'));
-    for (const link of links) {
-      const href = link.getAttribute('href') || '';
-      const m = href.match(/\/@([^/]+)\/post\/([A-Za-z0-9_-]+)/);
-      if (!m || seen.has(m[2])) continue;
-      seen.add(m[2]);
-      // Đi ngược lên container có >=2 nút thống kê.
-      let el = link.parentElement, depth = 0, container = null;
-      while (el && depth < 15) {
-        const btns = el.querySelectorAll('div[role="button"]');
-        let stats = 0;
-        for (const b of btns) {
-          const t = b.textContent || '';
-          if (/like|comment|repost|share|thích|bình luận|chia sẻ/i.test(t)) stats++;
-        }
-        if (stats >= 2) { container = el; break; }
-        el = el.parentElement; depth++;
-      }
-      if (!container) continue;
-      const username = m[1];
-      const nameLink = container.querySelector(`a[href="/@${username}"]`);
-      const displayName = (nameLink?.textContent || username).trim();
-      const avatar = container.querySelector('img[alt*="profile"], img[alt*="avatar"]');
-      const texts = [];
-      for (const tEl of container.querySelectorAll('div[dir="auto"], span[dir="auto"]')) {
-        if (tEl.closest('[role="button"]') || tEl.closest('a')) continue;
-        const t = (tEl.textContent || '').trim();
-        if (t.length > 3 && t !== username && t !== displayName && !/^\d+[mhd]$/.test(t) && !/^[\d,]+$/.test(t)) texts.push(t);
-      }
-      let content = texts.join('\n\n').replace(/\s*(Learn more|Translate)\s*$/i, '').trim();
-      const timeEl = container.querySelector('time');
-      let likes = 0, replies = 0, reposts = 0, shares = 0;
-      for (const b of container.querySelectorAll('div[role="button"]')) {
-        const label = (b.getAttribute('aria-label') || b.textContent || '');
-        const num = (label.match(/[\d,.]+[KkMm]?/) || ['0'])[0];
-        const v = (() => { const x = parseFloat(num.replace(/,/g, '')); return num.toLowerCase().endsWith('k') ? x * 1000 : num.toLowerCase().endsWith('m') ? x * 1e6 : x; })();
-        if (/like|thích/i.test(label) && !likes) likes = Math.round(v);
-        else if (/comment|repl|bình luận/i.test(label) && !replies) replies = Math.round(v);
-        else if (/repost/i.test(label) && !reposts) reposts = Math.round(v);
-        else if (/share|chia sẻ/i.test(label) && !shares) shares = Math.round(v);
-      }
-      out.push({
-        id: m[2],
-        url: href.startsWith('http') ? href : 'https://www.threads.com' + href,
-        author: { username, displayName, profileUrl: 'https://www.threads.com/@' + username, avatarUrl: avatar?.getAttribute('src') || undefined },
-        content,
-        timestamp: timeEl?.getAttribute('datetime') || timeEl?.textContent || '',
-        stats: { likes, replies, reposts, shares },
-      });
-    }
-    return out;
-  });
+  const posts = await page.evaluate(EXTRACT_EXPR);
 
   const valid = posts.filter((p) => p.content && p.content.length > 3);
   if (!valid.length) throw new Error('Cào được trang nhưng không trích xuất được nội dung bài nào (Threads đổi giao diện?). Dùng chế độ dán JSON hoặc demo.');
   const post = valid[0];
+  // GIỮ NGUYÊN THỨ TỰ TRÊN TRANG (hội thoại), không sắp xếp theo like:
+  // sắp xếp lại làm đứt chuỗi trả lời cha-con trong video mẫu.
   const comments = valid.slice(1)
     .filter((c) => c.id !== post.id)
-    .sort((a, b) => (b.stats.likes + b.stats.replies * 3) - (a.stats.likes + a.stats.replies * 3))
     .slice(0, maxComments);
   console.log(JSON.stringify({ post, comments, source: 'live', scrapedUrl: page.url() }));
 } finally {

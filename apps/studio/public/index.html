@@ -80,7 +80,7 @@
     <video id="renderedVideo" controls playsinline hidden></video>
     <p><a id="downloadLink" href="#" hidden>Tải video xuống</a></p>
   </section>
-  <footer><p>Fork nâng cấp từ <a href="https://github.com/Chuanyin1202/threads-toolkit">Chuanyin1202/threads-toolkit</a> (Apache-2.0). Phần cào giữ nguyên logic của toolkit gốc; Studio là phần mới.</p></footer>
+  <footer><p>Fork nâng cấp từ <a href="https://github.com/Chuanyin1202/threads-toolkit">Chuanyin1202/threads-toolkit</a> (Apache-2.0). Logic trích xuất ở <code>threads-parse.js</code> đã viết lại cho trang Threads hiện tại: 1 bài = 1 đơn vị, giữ thứ tự hội thoại và chuỗi trả lời lồng nhau; Studio là phần mới.</p></footer>
 </div>
 <aside class="preview-panel card" aria-label="Xem trước video">
   <h2>Xem trước <span class="sub">9:16 · cập nhật ngay khi sửa</span></h2>
@@ -88,12 +88,7 @@
     <div class="preview-bg" id="previewBg"></div>
     <div class="preview-wm preview-wm-top" id="previewWmTop" hidden></div>
     <div class="preview-card" id="previewCard">
-      <div class="preview-card-head">
-        <span class="preview-avatar" id="previewAvatar">?</span>
-        <span class="preview-names"><strong id="previewName">Chưa có đoạn nào</strong><small id="previewTime"></small></span>
-      </div>
-      <p class="preview-content" id="previewContent">Cào link hoặc bấm “Dùng dữ liệu demo” để xem thẻ bình luận hiện lên đúng như trong video xuất ra.</p>
-      <p class="preview-stats" id="previewStats"></p>
+      <div id="previewCardItems"></div>
     </div>
     <div class="preview-meme" id="previewMeme" hidden></div>
     <div class="preview-wm preview-wm-bottom" id="previewWmBottom" hidden></div>

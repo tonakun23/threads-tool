@@ -20,9 +20,8 @@ for (const d of [UPLOADS, OUT, JOBS]) mkdirSync(d, { recursive: true });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.svg': 'image/svg+xml' };
 const VOICES = [
-  { id: 'vi-VN-HoaiMyNeural', label: 'Hoài My (Nữ — Chuẩn)', gender: 'Nữ' },
-  { id: 'vi-VN-NamMinhNeural', label: 'Nam Minh (Nam — Chuẩn)', gender: 'Nam' },
-  { id: 'vi-VN-HoaiMyNeural', label: 'Hoài My (Nữ — Trẻ)', gender: 'Nữ' },
+  { id: 'vi-VN-HoaiMyNeural', label: 'Hoài My (Nữ)', gender: 'Nữ' },
+  { id: 'vi-VN-NamMinhNeural', label: 'Nam Minh (Nam)', gender: 'Nam' },
 ];
 const jobs = new Map();
 
@@ -82,11 +81,15 @@ function normalizeDataset(raw) {
     author: { username: p.author.username || 'unknown', displayName: p.author.displayName || p.author.username || 'unknown', profileUrl: p.author.profileUrl || '', avatarUrl: p.author.avatarUrl, isVerified: !!p.author.isVerified },
     content: String(p.content || ''),
     timestamp: p.timestamp || '',
+    timeLabel: p.timeLabel || '',
+    parentId: p.parentId || null,
+    depth: Number(p.depth || 0),
     stats: { likes: p.stats?.likes || 0, replies: p.stats?.replies || 0, reposts: p.stats?.reposts || 0, shares: p.stats?.shares || 0 },
   }));
   if (!posts.length) throw new Error('Không có bài nào hợp lệ trong JSON đã dán.');
   const main = posts.find((p) => !p.source) || posts[0];
-  const comments = posts.filter((p) => p.id !== main.id).sort((a, b) => (b.stats.likes + b.stats.replies * 3) - (a.stats.likes + a.stats.replies * 3));
+  // Giữ nguyên thứ tự trong JSON (thứ tự hội thoại), không sắp theo like.
+  const comments = posts.filter((p) => p.id !== main.id);
   return { post: main, comments };
 }
 
@@ -186,14 +189,23 @@ const server = createServer(async (req, res) => {
         const hit = readdirSync(UPLOADS).find((f) => f.startsWith(String(id) + '-'));
         return hit ? join(UPLOADS, hit) : null;
       };
-      const cleanSegments = segments.map((s) => ({
-        author: { username: String(s.author?.username || 'unknown').slice(0, 40), displayName: String(s.author?.displayName || s.author?.username || 'unknown').slice(0, 60), isVerified: !!s.author?.isVerified },
-        content: String(s.content || '').slice(0, 2000),
-        ttsText: String(s.ttsText || s.content || '').slice(0, 2000),
-        timeLabel: String(s.timeLabel || s.timestamp || '').slice(0, 20),
-        stats: { likes: Number(s.stats?.likes || 0), replies: Number(s.stats?.replies || 0), reposts: Number(s.stats?.reposts || 0), shares: Number(s.stats?.shares || 0) },
-        meme: s.meme?.id ? { kind: s.meme.kind || 'image', path: resolveUpload(s.meme.id), name: s.meme.name || '' } : null,
-      })).filter((s) => s.content.trim());
+      const cleanSegments = segments.map((s) => {
+        const cleanItem = (it) => ({
+          author: { username: String(it.author?.username || 'unknown').slice(0, 40), displayName: String(it.author?.displayName || it.author?.username || 'unknown').slice(0, 60), isVerified: !!it.author?.isVerified },
+          content: String(it.content || '').slice(0, 2000),
+          ttsText: String(it.ttsText || it.content || '').slice(0, 2000),
+          timeLabel: String(it.timeLabel || '').slice(0, 20),
+          stats: { likes: Number(it.stats?.likes || 0), replies: Number(it.stats?.replies || 0), reposts: Number(it.stats?.reposts || 0), shares: Number(it.stats?.shares || 0) },
+          depth: Number(it.depth || 0),
+        });
+        const items = Array.isArray(s.items) && s.items.length ? s.items.map(cleanItem) : [cleanItem(s)];
+        const first = items[0];
+        return {
+          kind: s.kind || 'comment', author: first.author, content: first.content, ttsText: first.ttsText,
+          timeLabel: first.timeLabel, stats: first.stats, items: items.length > 1 ? items : undefined,
+          meme: s.meme?.id ? { kind: s.meme.kind || 'image', path: resolveUpload(s.meme.id), name: s.meme.name || '' } : null,
+        };
+      }).filter((s) => (s.items ? s.items.some((it) => it.content.trim()) : s.content.trim()));
       if (!cleanSegments.length) { send(res, 400, { error: 'Các đoạn đều trống nội dung.' }); return; }
       const id = randomUUID().slice(0, 8);
       const jobDir = join(JOBS, id);

@@ -10,12 +10,52 @@ function avatarColor(username) {
   let h = 0; for (const ch of String(username || '?')) h = (h * 31 + ch.charCodeAt(0)) % 997;
   return palette[h % palette.length];
 }
-function visibleSegments() { return state.segments.filter((s) => s.include && s.content.trim()); }
+function visibleSegments() { return state.segments.filter((s) => s.include && segItems(s).some((it) => (it.content || '').trim())); }
 function estimateDuration(text, ratePercent) {
   const speed = 12 * (100 + ratePercent) / 100;
   return Math.max(1.5, Math.min(30, String(text || '').length / Math.max(speed, 1) + 0.4)) + 0.6;
 }
 function uploadUrl(u) { return u ? `/uploads/${u.id}-${u.name}` : ''; }
+function formatCompact(n) {
+  const v = Number(n) || 0;
+  const f1 = (x) => { const s = (Math.round(x * 10) / 10).toString().replace('.', ','); return s.endsWith(',0') ? s.slice(0, -2) : s; };
+  if (v >= 1000000) return f1(v / 1000000) + 'M';
+  if (v >= 1000) return f1(v / 1000) + 'K';
+  return String(v);
+}
+function formatTimeLabel(ts, timeLabel) {
+  if (timeLabel) return timeLabel;
+  const raw = String(ts || '').trim();
+  if (!raw || raw.includes('T')) {
+    const t = Date.parse(raw);
+    if (isNaN(t)) return '';
+    const diff = Math.max(0, Date.now() - t);
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return 'Vừa xong';
+    if (min < 60) return min + ' phút';
+    const h = Math.floor(min / 60);
+    if (h < 24) return h + ' giờ';
+    const d = Math.floor(h / 24);
+    if (d < 7) return d + ' ngày';
+    if (d < 30) return Math.floor(d / 7) + ' tuần';
+    const dt = new Date(t);
+    return dt.getDate() + '/' + (dt.getMonth() + 1) + '/' + dt.getFullYear();
+  }
+  return raw;
+}
+function avatarLetter(username) {
+  const m = String(username || '').match(/[A-Za-z0-9À-ỹ]/);
+  return (m ? m[0] : '?').toUpperCase();
+}
+function statsLine(stats) {
+  const s = stats || {};
+  return `♥ ${formatCompact(s.likes)}   💬 ${formatCompact(s.replies)}   🔁 ${formatCompact(s.reposts)}   ↗ ${formatCompact(s.shares)}`;
+}
+function segItems(seg) {
+  if (seg.kind === 'chain') return seg.items;
+  return [{ author: seg.author, content: seg.content, ttsText: seg.ttsText, timeLabel: seg.timeLabel, timestamp: seg.timestamp, stats: seg.stats }];
+}
+function segText(seg) { return segItems(seg).map((it) => it.ttsText || it.content).join(' '); }
 
 async function uploadFile(file) {
   const fd = new FormData();
@@ -26,8 +66,32 @@ async function uploadFile(file) {
   return j;
 }
 
-function makeSegment(author, content, stats, timeLabel, kind) {
-  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
+function makeSegment(author, content, stats, timeLabel, kind, timestamp) {
+  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', include: true };
+}
+function makeChainSegment(posts) {
+  return {
+    key: ++segCounter, kind: 'chain', memeId: '', include: true,
+    items: posts.map((p) => ({
+      author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified },
+      content: p.content || '', ttsText: p.content || '',
+      timeLabel: p.timeLabel || '', timestamp: p.timestamp || '',
+      stats: p.stats || { likes: 0, replies: 0, reposts: 0, shares: 0 },
+      depth: Number(p.depth || 0), parentId: p.parentId || null, id: p.id || '',
+    })),
+  };
+}
+function groupCommentsIntoChains(comments) {
+  // Giữ thứ tự trang; reply (parentId/depth) gộp vào chuỗi trước đó chứa cha.
+  const chains = [];
+  for (const c of comments) {
+    if (!c.parentId || !Number(c.depth)) { chains.push([c]); continue; }
+    const target = [...chains].reverse().find((ch) => ch.some((x) => x.id === c.parentId));
+    if (target) target.push(c);
+    else if (chains.length) chains[chains.length - 1].push(c);
+    else chains.push([c]);
+  }
+  return chains;
 }
 
 function renderPreview() {
@@ -53,29 +117,30 @@ function renderPreview() {
   bottom.hidden = !(wm && (pos === 'bottom' || pos === 'both'));
   const seg = segs[preview.index];
   const select = $('#previewSegSelect');
-  select.innerHTML = segs.map((s, i) => `<option value="${i}" ${i === preview.index ? 'selected' : ''}>${i + 1}. ${s.kind === 'post' ? 'Bài gốc' : 'Bình luận'} @${esc(s.author.username)}</option>`).join('');
+  select.innerHTML = segs.map((s, i) => { const first = segItems(s)[0]; return `<option value="${i}" ${i === preview.index ? 'selected' : ''}>${i + 1}. ${s.kind === 'post' ? 'Bài gốc' : 'Bình luận'} @${esc(first?.author.username || '?')}${segItems(s).length > 1 ? ` +${segItems(s).length - 1} trả lời` : ''}</option>`; }).join('');
   if (!seg) {
-    $('#previewAvatar').textContent = '?';
-    $('#previewName').textContent = 'Chưa có đoạn nào';
-    $('#previewTime').textContent = '';
-    $('#previewContent').textContent = 'Cào link hoặc bấm “Dùng dữ liệu demo” để xem thẻ bình luận hiện lên đúng như trong video xuất ra.';
-    $('#previewStats').textContent = '';
+    $('#previewCardItems').innerHTML = `<div class="preview-item"><div class="preview-card-head"><span class="preview-avatar">?</span><span class="preview-names"><strong>Chưa có đoạn nào</strong></span></div><p class="preview-content">Cào link hoặc bấm “Dùng dữ liệu demo” để xem thẻ bình luận hiện lên đúng như trong video xuất ra.</p></div>`;
     $('#previewTts').value = '';
     $('#previewBadge').textContent = '0 / 0';
     $('#previewInfo').textContent = 'Chưa có đoạn nào được đưa vào video.';
     $('#previewMeme').hidden = true;
     return;
   }
-  $('#previewAvatar').textContent = (seg.author.displayName || seg.author.username || '?').slice(0, 1).toUpperCase();
-  $('#previewAvatar').style.background = avatarColor(seg.author.username);
-  $('#previewName').textContent = seg.author.displayName || seg.author.username;
-  $('#previewTime').textContent = seg.timeLabel || '';
-  $('#previewContent').textContent = seg.content;
-  $('#previewStats').textContent = `Thích ${seg.stats.likes}   •   Bình luận ${seg.stats.replies}   •   Chia sẻ ${seg.stats.reposts + seg.stats.shares}`;
-  $('#previewTts').value = seg.ttsText || seg.content;
-  $('#previewBadge').textContent = `${preview.index + 1} / ${segs.length} · ${seg.kind === 'post' ? 'BÀI GỐC' : 'COMMENT'}`;
+  const items = segItems(seg);
+  $('#previewCardItems').innerHTML = items.map((it, i) => `
+    <div class="preview-item ${i > 0 ? 'reply' : ''}">
+      <div class="preview-card-head">
+        <span class="preview-avatar" style="background:${avatarColor(it.author.username)}">${esc(avatarLetter(it.author.username))}</span>
+        <span class="preview-names"><strong>@${esc(it.author.username)}</strong><small>${esc(formatTimeLabel(it.timestamp, it.timeLabel))}</small></span>
+      </div>
+      <p class="preview-content">${esc(it.content)}</p>
+      <p class="preview-stats">${esc(statsLine(it.stats))}</p>
+    </div>`).join('');
+  $('#previewTts').value = items.map((it) => it.ttsText || it.content).join('\n');
+  const kindLabel = seg.kind === 'post' ? 'BÀI GỐC' : (items.length > 1 ? `CHUỖI · ${items.length} BÌNH LUẬN` : 'BÌNH LUẬN');
+  $('#previewBadge').textContent = `${preview.index + 1} / ${segs.length} · ${kindLabel}`;
   const rate = parseInt($('#rate').value, 10) || 0;
-  const durs = segs.map((s) => estimateDuration(s.ttsText || s.content, rate));
+  const durs = segs.map((s) => estimateDuration(segText(s), rate));
   const total = durs.reduce((a, b) => a + b, 0);
   $('#previewInfo').textContent = `Đoạn này khoảng ${durs[preview.index].toFixed(1)} giây (ước lượng theo giọng đọc). Cả video khoảng ${total.toFixed(1)} giây, chưa tính thời gian render thật.`;
   // Meme của đoạn đang xem.
@@ -113,7 +178,7 @@ function playPreviewStep() {
   if (preview.index >= segs.length - 1) { stopPreviewPlay(); return; }
   const seg = segs[preview.index];
   const rate = parseInt($('#rate').value, 10) || 0;
-  preview.timer = setTimeout(() => { preview.index += 1; renderPreview(); playPreviewStep(); }, estimateDuration(seg.ttsText || seg.content, rate) * 1000);
+  preview.timer = setTimeout(() => { preview.index += 1; renderPreview(); playPreviewStep(); }, estimateDuration(segText(seg), rate) * 1000);
 }
 function togglePreviewPlay() {
   if (preview.playing) { stopPreviewPlay(); return; }
@@ -132,29 +197,35 @@ function renderSegments() {
   state.segments.forEach((seg, i) => {
     const div = document.createElement('div');
     div.className = 'segment';
-    const label = seg.kind === 'post' ? 'BÀI GỐC' : `COMMENT #${i}`;
+    const items = segItems(seg);
+    const first = items[0];
+    const label = seg.kind === 'post' ? 'BÀI GỐC' : (items.length > 1 ? `CHUỖI BÌNH LUẬN · ${items.length}` : `COMMENT #${i}`);
+    const itemsHtml = items.map((it, j) => `
+      <div class="chain-item ${j > 0 ? 'reply' : ''}">
+        <p class="hint" style="margin:0 0 6px"><strong>@${esc(it.author.username)}</strong> · ${esc(formatTimeLabel(it.timestamp, it.timeLabel))} · ${esc(statsLine(it.stats))}</p>
+        <div class="cols">
+          <label>1. Chữ hiển thị trên thẻ (giữ viết tắt):
+            <textarea class="seg-content" data-item="${j}">${esc(it.content)}</textarea></label>
+          <label>2. Chữ đọc lồng tiếng TTS (đã dịch):
+            <textarea class="seg-tts" data-item="${j}">${esc(it.ttsText)}</textarea></label>
+        </div>
+      </div>`).join('');
     div.innerHTML = `
       <div class="seg-head">
         <span class="badge">${label}</span>
-        <strong>@${esc(seg.author.username)}</strong><span>${esc(seg.author.displayName)}</span>
-        <span>${esc(seg.timeLabel)}</span>
+        <strong>@${esc(first.author.username)}</strong><span>${esc(first.author.displayName)}</span>
+        <span>${esc(formatTimeLabel(first.timestamp, first.timeLabel))}</span>
         <label><input type="checkbox" class="seg-include" ${seg.include ? 'checked' : ''}> Đưa vào video</label>
         <button type="button" class="seg-view">👁 Xem</button>
         <button type="button" class="seg-up">↑</button><button type="button" class="seg-down">↓</button>
         <button type="button" class="seg-del">Xoá</button>
       </div>
-      <div class="cols">
-        <label>1. Chữ hiển thị trên thẻ (giữ viết tắt):
-          <textarea class="seg-content">${esc(seg.content)}</textarea></label>
-        <label>2. Chữ đọc lồng tiếng TTS (đã dịch):
-          <textarea class="seg-tts">${esc(seg.ttsText)}</textarea></label>
-      </div>
+      ${itemsHtml}
       <label>Meme chèn trong đoạn này:
         <select class="seg-meme"><option value="">— Không chèn meme —</option>${state.memes.map((m) => `<option value="${m.id}" ${seg.memeId === m.id ? 'selected' : ''}>${esc(m.name)} (${m.kind})</option>`).join('')}</select>
-      </label>
-      <p class="hint">♥ ${seg.stats.likes} · 💬 ${seg.stats.replies} · 🔁 ${seg.stats.reposts} · ↗ ${seg.stats.shares}</p>`;
-    div.querySelector('.seg-content').addEventListener('input', (e) => { seg.content = e.target.value; renderPreview(); });
-    div.querySelector('.seg-tts').addEventListener('input', (e) => { seg.ttsText = e.target.value; renderPreview(); });
+      </label>`;
+    div.querySelectorAll('.seg-content').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].content = e.target.value; renderPreview(); }));
+    div.querySelectorAll('.seg-tts').forEach((ta) => ta.addEventListener('input', (e) => { items[Number(e.target.dataset.item)].ttsText = e.target.value; renderPreview(); }));
     div.querySelector('.seg-include').addEventListener('change', (e) => { seg.include = e.target.checked; renderPreview(); });
     div.querySelector('.seg-meme').addEventListener('change', (e) => { seg.memeId = e.target.value; renderPreview(); });
     div.querySelector('.seg-view').addEventListener('click', () => { const vis = visibleSegments(); const idx = vis.indexOf(seg); if (idx >= 0) setPreviewIndex(idx); document.querySelector('.preview-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
@@ -169,10 +240,11 @@ function renderSegments() {
 
 function loadData(data) {
   state.segments = [];
-  if (data.post) state.segments.push(makeSegment(data.post.author, data.post.content, data.post.stats, data.post.timestamp, 'post'));
-  (data.comments || []).forEach((c) => state.segments.push(makeSegment(c.author, c.content, c.stats, c.timestamp, 'comment')));
+  if (data.post) state.segments.push(makeSegment(data.post.author, data.post.content, data.post.stats, data.post.timeLabel || '', 'post', data.post.timestamp));
+  const chains = groupCommentsIntoChains(data.comments || []);
+  for (const ch of chains) state.segments.push(makeChainSegment(ch));
   renderSegments();
-  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận (${data.source || 'live'}). Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.`);
+  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.`);
 }
 
 async function doScrape(mode, extra) {
@@ -199,7 +271,7 @@ $('#btnScrape').addEventListener('click', () => doScrape('live'));
 $('#btnDemo').addEventListener('click', () => doScrape('demo'));
 $('#btnPasteToggle').addEventListener('click', () => { $('#pasteBox').hidden = !$('#pasteBox').hidden; });
 $('#btnPaste').addEventListener('click', () => doScrape('paste', { pasteJson: $('#pasteJson').value }));
-$('#btnAddComment').addEventListener('click', () => { state.segments.push(makeSegment({ username: 'nguoi_dung', displayName: 'Người dùng' }, '', { likes: 0, replies: 0, reposts: 0, shares: 0 }, '', 'comment')); renderSegments(); });
+$('#btnAddComment').addEventListener('click', () => { state.segments.push(makeChainSegment([{ author: { username: 'nguoi_dung', displayName: 'Người dùng' }, content: '', stats: { likes: 0, replies: 0, reposts: 0, shares: 0 }, timestamp: '' }])); renderSegments(); });
 
 $('#btnMemeUpload').addEventListener('click', async () => {
   const f = $('#memeFile').files[0];
@@ -233,11 +305,18 @@ $('#rate').addEventListener('input', (e) => { $('#rateLabel').textContent = (e.t
 $('#bgmVolume').addEventListener('input', (e) => { $('#bgmLabel').textContent = e.target.value + '%'; });
 
 $('#btnRender').addEventListener('click', async () => {
-  const segments = state.segments.filter((s) => s.include && s.content.trim()).map((s) => ({
-    author: s.author, content: s.content, ttsText: s.ttsText || s.content,
-    timeLabel: s.timeLabel, stats: s.stats,
-    meme: s.memeId ? (() => { const m = state.memes.find((x) => x.id === s.memeId); return m ? { id: m.id, kind: m.kind, name: m.name } : null; })() : null,
-  }));
+  const segments = state.segments.filter((s) => s.include && segItems(s).some((it) => (it.content || '').trim())).map((s) => {
+    const items = segItems(s).map((it) => ({
+      author: it.author, content: it.content, ttsText: it.ttsText || it.content,
+      timeLabel: formatTimeLabel(it.timestamp, it.timeLabel), stats: it.stats, depth: it.depth || 0,
+    }));
+    const first = items[0];
+    return {
+      kind: s.kind, author: first.author, content: first.content, ttsText: first.ttsText,
+      timeLabel: first.timeLabel, stats: first.stats, items: items.length > 1 ? items : undefined,
+      meme: s.memeId ? (() => { const m = state.memes.find((x) => x.id === s.memeId); return m ? { id: m.id, kind: m.kind, name: m.name } : null; })() : null,
+    };
+  });
   if (!segments.length) { status($('#renderStatus'), 'Chưa có đoạn nào để xuất. Cào link hoặc thêm comment trước.'); return; }
   const btn = $('#btnRender'); btn.disabled = true;
   status($('#renderStatus'), 'Đang gửi yêu cầu dựng video…');

@@ -135,58 +135,124 @@ def wrap(draw: ImageDraw.ImageDraw, text: str, fnt, max_w: int) -> list[str]:
     return lines
 
 
-def render_card(seg: dict, out: Path) -> None:
-    author = seg.get("author") or {}
-    username = author.get("username") or "unknown"
-    display = author.get("displayName") or username
-    content = seg.get("content") or ""
-    stats = seg.get("stats") or {}
-    time_label = seg.get("timeLabel") or seg.get("timestamp") or ""
+def format_compact(n: int) -> str:
+    """10800 -> '10,8K' (kiểu Việt Nam, giống số hiển thị trên Threads)."""
+    v = int(n or 0)
+    if v >= 1_000_000:
+        s = f"{v / 1_000_000:.1f}".replace('.', ',')
+        return (s[:-2] if s.endswith(',0') else s) + 'M'
+    if v >= 1000:
+        s = f"{v / 1000:.1f}".replace('.', ',')
+        return (s[:-2] if s.endswith(',0') else s) + 'K'
+    return str(v)
 
-    pad, gap = 40, 22
+
+def avatar_letter(username: str) -> str:
+    for ch in username or '':
+        if ch.isalnum():
+            return ch.upper()
+    return '?'
+
+
+def render_card(seg: dict, out: Path) -> None:
+    """Thẻ tối giống Threads dark mode trong video mẫu: nền #141414,
+    chữ trắng, giờ xám, mỗi bình luận một hàng thống kê rút gọn.
+    Chuỗi trả lời (items) hiện chung một thẻ, reply thụt vào + kẻ dọc.
+    """
+    raw_items = seg.get("items") or [seg]
+    items = []
+    for it in raw_items:
+        author = it.get("author") or {}
+        items.append({
+            "username": author.get("username") or "unknown",
+            "display": author.get("displayName") or author.get("username") or "unknown",
+            "is_verified": bool(author.get("isVerified")),
+            "content": it.get("content") or "",
+            "stats": it.get("stats") or {},
+            "time_label": it.get("timeLabel") or it.get("timestamp") or "",
+            "depth": int(it.get("depth") or 0),
+        })
+    # Reply sau bình luận đầu được thụt vào dù depth từ dữ liệu cũ = 0.
+    for i in range(1, len(items)):
+        items[i]["depth"] = max(1, items[i]["depth"])
+
+    pad, gap = 44, 20
     inner_w = CARD_W - pad * 2
+    MAX_H = 1480
     body_size = 40
-    # Thu nhỏ chữ nếu nội dung quá dài để thẻ không vượt màn hình.
-    tmp = Image.new("RGB", (CARD_W, 10))
-    d = ImageDraw.Draw(tmp)
-    lines = wrap(d, content, font(FONT_REG, body_size), inner_w)
-    while len(lines) * 54 > 900 and body_size > 30:
+    while True:
+        tmp = Image.new("RGB", (CARD_W, 10))
+        d = ImageDraw.Draw(tmp)
+        total_h = pad
+        blocks = []
+        for idx, it in enumerate(items):
+            indent = 58 if it["depth"] else 0
+            w = inner_w - indent
+            lines = wrap(d, it["content"], font(FONT_REG, body_size), w)
+            stats_h = 40
+            header_h = 64 if not it["depth"] else 56
+            h = header_h + 14 + len(lines) * (body_size + 12) + gap + stats_h
+            blocks.append((lines, h, header_h))
+            total_h += h + (16 if idx else 0)
+        total_h += pad - 16
+        if total_h <= MAX_H or body_size <= 28:
+            break
         body_size -= 4
-        lines = wrap(d, content, font(FONT_REG, body_size), inner_w)
-    body_h = len(lines) * (body_size + 12)
-    card_h = pad + 84 + gap + body_h + gap + 36 + pad
+    card_h = min(total_h, MAX_H)
 
     img = Image.new("RGBA", (CARD_W, card_h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([0, 0, CARD_W - 1, card_h - 1], radius=36,
-                        fill=(255, 255, 255, 255), outline=(220, 220, 220, 255), width=2)
-    # Avatar: vòng tròn màu + chữ cái đầu.
-    cx, cy, r = pad + 42, pad + 42, 42
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=avatar_color(username))
-    letter = (display or username)[:1].upper()
-    lf = font(FONT_BOLD, 40)
-    tw = d.textlength(letter, font=lf)
-    d.text((cx - tw / 2, cy - 28), letter, font=lf, fill=(255, 255, 255, 255))
-    # Tên + thời gian.
-    d.text((pad + 100, pad + 4), display, font=font(FONT_BOLD, 36), fill=(15, 23, 42, 255))
-    if time_label:
-        d.text((pad + 100, pad + 48), str(time_label), font=font(FONT_REG, 28),
-               fill=(100, 116, 139, 255))
-    if author.get("isVerified"):
-        d.text((pad + 100 + d.textlength(display, font=font(FONT_BOLD, 36)) + 10, pad + 4),
-               "✓", font=font(FONT_BOLD, 30), fill=(37, 99, 235, 255))
-    # Nội dung.
-    y = pad + 84 + gap
-    bf = font(FONT_REG, body_size)
-    for line in lines:
-        d.text((pad, y), line, font=bf, fill=(30, 41, 59, 255))
-        y += body_size + 12
-    # Thống kê.
-    stats_text = (f"Thích {stats.get('likes', 0)}   •   "
-                  f"Bình luận {stats.get('replies', 0)}   •   "
-                  f"Chia sẻ {stats.get('reposts', 0) + stats.get('shares', 0)}")
-    d.text((pad, y + 6), stats_text, font=font(FONT_REG, 30), fill=(100, 116, 139, 255))
-    img.save(out, "PNG")  # Giữ kênh alpha để góc bo tròn trong suốt, không thành góc đen.
+    d.rounded_rectangle([0, 0, CARD_W - 1, card_h - 1], radius=28,
+                        fill=(20, 20, 20, 255), outline=(64, 64, 64, 255), width=2)
+    # Logo Threads góc phải trên: vòng tròn + @.
+    d.ellipse([CARD_W - 92, pad - 8, CARD_W - 44, pad + 40], outline=(212, 212, 212, 255), width=3)
+    lf = font(FONT_BOLD, 28)
+    d.text((CARD_W - 80, pad + 2), "@", font=lf, fill=(255, 255, 255, 255))
+    y = pad
+    for idx, it in enumerate(items):
+        indent = 58 if it["depth"] else 0
+        x0 = pad + indent
+        if it["depth"]:
+            d.line([(pad + 28, y + 8), (pad + 28, y + blocks[idx][1] - 16)],
+                   fill=(96, 96, 96, 255), width=3)
+        r = 40 if not it["depth"] else 32
+        cx, cy = x0 + r, y + r
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=avatar_color(it["username"]))
+        letter = avatar_letter(it["username"])
+        lfont = font(FONT_BOLD, 38 if not it["depth"] else 30)
+        tw = d.textlength(letter, font=lfont)
+        d.text((cx - tw / 2, cy - (26 if not it["depth"] else 21)), letter, font=lfont,
+               fill=(255, 255, 255, 255))
+        name_x = x0 + r * 2 + 16
+        name_font = font(FONT_BOLD, 36 if not it["depth"] else 32)
+        d.text((name_x, y + 2), it["username"], font=name_font, fill=(255, 255, 255, 255))
+        if it["is_verified"]:
+            nx = name_x + d.textlength(it["username"], font=name_font) + 8
+            d.text((nx, y + 2), "✓", font=font(FONT_BOLD, 28), fill=(37, 99, 235, 255))
+        if it["time_label"]:
+            tx = name_x + d.textlength(it["username"], font=name_font) + (28 if it["is_verified"] else 12)
+            d.text((tx, y + 8), str(it["time_label"]), font=font(FONT_REG, 28),
+                   fill=(163, 163, 163, 255))
+        # Nội dung.
+        cy_text = y + blocks[idx][2] + 14
+        bf = font(FONT_REG, body_size)
+        for line in blocks[idx][0]:
+            if cy_text + body_size > card_h - pad - 40:
+                break
+            d.text((x0, cy_text), line, font=bf, fill=(255, 255, 255, 255))
+            cy_text += body_size + 12
+        # Thống kê rút gọn: ♥ like · ✉ reply · ⇄ repost · ↗ share.
+        stats = it["stats"]
+        stats_text = (f"♥ {format_compact(stats.get('likes', 0))}    "
+                      f"✉ {format_compact(stats.get('replies', 0))}    "
+                      f"⇄ {format_compact(stats.get('reposts', 0))}    "
+                      f"↗ {format_compact(stats.get('shares', 0))}")
+        d.text((x0, cy_text + 4), stats_text, font=font(FONT_REG, 29),
+               fill=(212, 212, 212, 255))
+        y += blocks[idx][1] + 16
+        if y > card_h - pad:
+            break
+    img.save(out, "PNG")
 
 
 def gradient_bg(out: Path) -> None:
@@ -203,7 +269,13 @@ def gradient_bg(out: Path) -> None:
 
 
 def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
-    text = (seg.get("ttsText") or seg.get("content") or "").strip()
+    items = seg.get("items") or [seg]
+    parts = []
+    for it in items:
+        t = (it.get("ttsText") or it.get("content") or "").strip()
+        if t:
+            parts.append(t if t[-1] in '.!?…' else t + '.')
+    text = " ".join(parts).strip()
     voice = settings.get("voice", "vi-VN-HoaiMyNeural")
     rate = int(settings.get("ratePercent", 20))
     if not text:
@@ -329,7 +401,9 @@ def main() -> int:
 
     seg_files = []
     for i, seg in enumerate(segments):
-        print(f"SEGMENT {i + 1}/{len(segments)}: @{seg.get('author', {}).get('username')}",
+        first_author = (seg.get("items") or [seg])[0].get("author", {}).get("username")
+        print(f"SEGMENT {i + 1}/{len(segments)}: @{first_author}"
+              + (f" +{len(seg['items']) - 1} trả lời" if seg.get("items") else ""),
               flush=True)
         seg_files.append(render_segment(i, seg, settings, work, bg_png, 0))
     # Nối các đoạn.
