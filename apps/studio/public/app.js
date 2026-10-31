@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
 const state = { segments: [], memes: [], uploads: {}, previewUploads: {} };
-const preview = { index: 0, playing: false, timer: null, lastBgKey: '', lastMemeKey: '' };
+const preview = { index: 0, playing: false, timer: null, lastBgKey: '', lastMemeKey: '', lastTtsKey: '' };
 let segCounter = 0;
 
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -55,7 +55,30 @@ function segItems(seg) {
   if (seg.kind === 'chain') return seg.items;
   return [{ author: seg.author, content: seg.content, ttsText: seg.ttsText, timeLabel: seg.timeLabel, timestamp: seg.timestamp, stats: seg.stats, url: seg.url || '' }];
 }
-function segText(seg) { return segItems(seg).map((it) => it.ttsText || it.content).join(' '); }
+function segText(seg) { return segItems(seg).map((it) => it.ttsText ?? it.content).join(' '); }
+// Chữ đọc mặc định: chỉ giữ phần đáng đọc, bỏ hashtag, link,
+// @nhắc tên và emoji — giọng đọc không cần đọc những thứ đó (Tony
+// 31/10: đọc cả hashtag nghe thừa). Chỉ áp khi tạo đoạn từ dữ liệu
+// cào/demo/dán; chữ đã sửa tay trong ô TTS thì giữ nguyên, không
+// dọn lại. Trả '' khi không còn gì để đọc (vd bình luận chỉ có
+// @nhắc tên) — đoạn đó sẽ im lặng thay vì đọc câu giữ chỗ.
+function cleanTtsText(text) {
+  let t = String(text || '');
+  t = t.replace(/https?:\/\/\S+/gi, ' ');
+  t = t.replace(/\bwww\.\S+/gi, ' ');
+  // Tên miền trần (niemphat.online/s/...) — giữ lại số thuần như 1.5,
+  // v1.2.3 và tên viết tắt kiểu U.S.A (phần cuối 1 ký tự/số).
+  t = t.replace(/[\wÀ-ỹ-]+(?:\.[\wÀ-ỹ-]+)+(?:\/\S*)?/g, (tok) => {
+    const domain = tok.split('/')[0];
+    const last = domain.split('.').pop() || '';
+    if (!/[A-Za-zÀ-ỹ]/.test(tok)) return tok;
+    return /^[A-Za-zÀ-ỹ]{2,}$/.test(last) ? ' ' : tok;
+  });
+  t = t.replace(/#[\p{L}\p{N}_]+/gu, ' ');
+  t = t.replace(/@[\p{L}\p{N}_.]+/gu, ' ');
+  t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{FE0F}\u{200D}]/gu, ' ');
+  return t.replace(/\s+([,.!?;:])/g, '$1').replace(/\s+/g, ' ').trim();
+}
 
 async function uploadFile(file) {
   const fd = new FormData();
@@ -67,14 +90,14 @@ async function uploadFile(file) {
 }
 
 function makeSegment(author, content, stats, timeLabel, kind, timestamp, url) {
-  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: content || '', timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', embedCode: '', include: true };
+  return { key: ++segCounter, kind, author: { username: author?.username || 'unknown', displayName: author?.displayName || author?.username || 'unknown', isVerified: !!author?.isVerified, avatarUrl: author?.avatarUrl || '' }, content: content || '', ttsText: cleanTtsText(content || ''), timeLabel: timeLabel || '', timestamp: timestamp || '', url: url || '', stats: stats || { likes: 0, replies: 0, reposts: 0, shares: 0 }, memeId: '', embedCode: '', include: true };
 }
 function makeChainSegment(posts) {
   return {
     key: ++segCounter, kind: 'chain', memeId: '', embedCode: '', include: true,
     items: posts.map((p) => ({
       author: { username: p.author?.username || 'unknown', displayName: p.author?.displayName || p.author?.username || 'unknown', isVerified: !!p.author?.isVerified, avatarUrl: p.author?.avatarUrl || '' },
-      content: p.content || '', ttsText: p.content || '',
+      content: p.content || '', ttsText: cleanTtsText(p.content || ''),
       timeLabel: p.timeLabel || '', timestamp: p.timestamp || '', url: p.url || '',
       stats: p.stats || { likes: 0, replies: 0, reposts: 0, shares: 0 },
       depth: Number(p.depth || 0), parentId: p.parentId || null, id: p.id || '',
@@ -201,6 +224,30 @@ function scheduleShotRefresh(seg) {
   }, 1200);
 }
 
+// Ô sửa chữ đọc trong khung xem trước: một ô cho mỗi bình luận của
+// đoạn đang xem, đồng bộ hai chiều với mục 2. Chỉ dựng lại khi đổi
+// đoạn (khỏi mất vị trí gõ); khi sửa ở mục 2 thì đồng bộ giá trị
+// vào các ô không đang được gõ.
+function renderPreviewTtsBox(seg) {
+  const box = $('#previewTtsBox');
+  if (!box) return;
+  const items = seg ? segItems(seg) : [];
+  const key = seg ? seg.key + ':' + items.length : 'none';
+  if (preview.lastTtsKey !== key) {
+    preview.lastTtsKey = key;
+    box.innerHTML = items.map((it, i) => `<label class="preview-tts-item"><span>Chữ đọc · @${esc(it.author.username)}</span><textarea class="preview-tts-ta" data-item="${i}" rows="2" placeholder="Để trống thì đoạn này im lặng">${esc(it.ttsText ?? it.content)}</textarea></label>`).join('');
+    box.querySelectorAll('.preview-tts-ta').forEach((ta) => ta.addEventListener('input', (e) => {
+      const it = items[Number(e.target.dataset.item)];
+      if (it) { it.ttsText = e.target.value; renderSegments(); }
+    }));
+  } else {
+    box.querySelectorAll('.preview-tts-ta').forEach((ta) => {
+      const it = items[Number(ta.dataset.item)];
+      const v = it ? (it.ttsText ?? it.content) : '';
+      if (it && document.activeElement !== ta && ta.value !== v) ta.value = v;
+    });
+  }
+}
 function renderPreview() {
   const segs = visibleSegments();
   const frame = $('#previewFrame');
@@ -238,7 +285,7 @@ function renderPreview() {
     $('#previewCard').classList.remove('real');
     $('#previewEmbedShots').hidden = true; $('#previewEmbedShots').innerHTML = '';
     $('#previewCardItems').innerHTML = `<div class="preview-item"><div class="preview-card-head"><span class="preview-avatar">?</span><span class="preview-names"><strong>Chưa có đoạn nào</strong></span></div><p class="preview-content">Cào link hoặc bấm “Dùng dữ liệu demo” để xem thẻ bình luận hiện lên đúng như trong video xuất ra.</p></div>`;
-    $('#previewTts').value = '';
+    $('#previewTtsBox') && renderPreviewTtsBox(null);
     $('#previewBadge').textContent = '0 / 0';
     $('#previewInfo').textContent = 'Chưa có đoạn nào được đưa vào video.';
     $('#previewMeme').hidden = true;
@@ -272,7 +319,7 @@ function renderPreview() {
       <p class="preview-stats">${esc(statsLine(it.stats))}</p>
     </div>`).join('');
   }
-  $('#previewTts').value = items.map((it) => it.ttsText || it.content).join('\n');
+  renderPreviewTtsBox(seg);
   const kindLabel = seg.kind === 'post' ? 'BÀI GỐC' : (items.length > 1 ? `CHUỖI · ${items.length} BÌNH LUẬN` : 'BÌNH LUẬN');
   $('#previewBadge').textContent = `${preview.index + 1} / ${segs.length} · ${kindLabel}`;
   const rate = parseInt($('#rate').value, 10) || 0;
@@ -498,7 +545,7 @@ $('#bgmVolume').addEventListener('input', (e) => { $('#bgmLabel').textContent = 
 $('#btnRender').addEventListener('click', async () => {
   const segments = state.segments.filter((s) => s.include && segItems(s).some((it) => (it.content || '').trim())).map((s) => {
     const items = segItems(s).map((it) => ({
-      author: it.author, content: it.content, ttsText: it.ttsText || it.content,
+      author: it.author, content: it.content, ttsText: it.ttsText ?? it.content,
       timeLabel: formatTimeLabel(it.timestamp, it.timeLabel), stats: it.stats, depth: it.depth || 0,
       url: it.url || '',
     }));

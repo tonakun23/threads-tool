@@ -112,9 +112,10 @@
     <select id="previewSegSelect"></select>
   </label>
   <p class="hint" id="previewInfo">Chưa có đoạn nào được đưa vào video.</p>
-  <label>Giọng đọc sẽ đọc (ô TTS của đoạn đang xem):
-    <textarea id="previewTts" rows="3" readonly></textarea>
-  </label>
+  <div id="previewTtsWrap">
+    <p class="hint" style="margin:0 0 6px"><strong>Chữ đọc của đoạn đang xem</strong> — sửa ngay tại đây, đồng bộ với mục 2. Hashtag, link, @nhắc tên và emoji đã tự bỏ khỏi chữ đọc mặc định khi cào; đoạn nào không còn chữ để đọc thì video sẽ im lặng ở đoạn đó.</p>
+    <div id="previewTtsBox"></div>
+  </div>
   <p class="hint">Khung trên chính là thẻ thật sẽ dùng trong video, tự dựng ngay sau khi cào và khi chuyển đoạn (kiểu Giống Threads: avatar thật, số liệu đã cào; kiểu Embed: thẻ chính thức nền sáng). Nếu thẻ thật chưa dựng được thì hiện bản mô phỏng và ghi rõ lý do. Bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
 </aside>
 </div>

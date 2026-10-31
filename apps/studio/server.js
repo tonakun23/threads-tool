@@ -440,7 +440,7 @@ const server = createServer(async (req, res) => {
         const cleanItem = (it) => ({
           author: { username: String(it.author?.username || 'unknown').slice(0, 40), displayName: String(it.author?.displayName || it.author?.username || 'unknown').slice(0, 60), isVerified: !!it.author?.isVerified, avatarUrl: String(it.author?.avatarUrl || '').slice(0, 500) },
           content: String(it.content || '').slice(0, 2000),
-          ttsText: String(it.ttsText || it.content || '').slice(0, 2000),
+          ttsText: String(it.ttsText ?? it.content ?? '').slice(0, 2000),
           timeLabel: String(it.timeLabel || '').slice(0, 20),
           url: String(it.url || '').slice(0, 300),
           stats: { likes: Number(it.stats?.likes || 0), replies: Number(it.stats?.replies || 0), reposts: Number(it.stats?.reposts || 0), shares: Number(it.stats?.shares || 0) },

@@ -324,14 +324,24 @@ def make_tts(seg: dict, settings: dict, out: Path, work: Path) -> float:
     items = seg.get("items") or [seg]
     parts = []
     for it in items:
-        t = (it.get("ttsText") or it.get("content") or "").strip()
+        # ttsText là chuỗi rỗng có chủ đích (đã dọn sạch hashtag/link/
+        # nhắc tên, không còn gì để đọc) thì KHÔNG rơi về content —
+        # rơi về content sẽ đọc lại đúng thứ vừa dọn.
+        t = ((it.get("ttsText") or "") if "ttsText" in it else (it.get("content") or "")).strip()
         if t:
             parts.append(t if t[-1] in '.!?…' else t + '.')
     text = " ".join(parts).strip()
     voice = settings.get("voice", "vi-VN-HoaiMyNeural")
     rate = int(settings.get("ratePercent", 20))
     if not text:
-        text = "(không có nội dung đọc)"
+        # Không còn chữ để đọc: im lặng, khỏi gọi TTS và khỏi đọc câu
+        # giữ chỗ "(không có nội dung đọc)".
+        dur = estimate_duration("", rate)
+        run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+             "-t", f"{dur:.2f}", "-c:a", "libmp3lame", "-q:a", "4", str(out)])
+        print(f"TTS bỏ qua: đoạn không còn chữ để đọc, dùng im lặng {dur:.1f}s.",
+              flush=True)
+        return dur
     # Thử python của .venv trong studio TRƯỚC (nơi đã cài edge-tts),
     # rồi mới tới python đang chạy render.py. Ghi rõ từng lần thử để
     # biết lỗi là "chưa cài edge-tts" hay "không nối được Edge TTS".

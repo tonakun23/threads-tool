@@ -24,6 +24,9 @@ main{max-width:1400px;margin:0 auto;padding:12px 16px 40px}
 .preview-item.reply{margin-left:20px;padding-left:12px;border-left:2px solid #404040}
 .preview-item.reply .preview-avatar{width:32px;height:32px;min-width:32px;font-size:15px}
 .preview-item.reply .preview-content{font-size:14px}
+.preview-tts-item{display:block;margin:0 0 8px;font-size:13px;color:var(--muted)}
+.preview-tts-item span{display:block;margin-bottom:4px}
+.preview-tts-item textarea{width:100%;min-height:44px}
 .chain-item{border:1px dashed var(--line);border-radius:10px;padding:10px;margin:10px 0}
 .chain-item.reply{margin-left:22px}
 .preview-meme{position:absolute;right:12px;bottom:64px;width:92px;z-index:2}.preview-meme img,.preview-meme video{width:100%;border-radius:10px;display:block}
