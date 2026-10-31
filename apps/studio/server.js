@@ -18,7 +18,7 @@ const OUT = join(ROOT, 'out');
 const JOBS = join(ROOT, 'jobs');
 for (const d of [UPLOADS, OUT, JOBS]) mkdirSync(d, { recursive: true });
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.svg': 'image/svg+xml' };
 const VOICES = [
   { id: 'vi-VN-HoaiMyNeural', label: 'Hoài My (Nữ — Chuẩn)', gender: 'Nữ' },
   { id: 'vi-VN-NamMinhNeural', label: 'Nam Minh (Nam — Chuẩn)', gender: 'Nam' },
@@ -103,6 +103,13 @@ const server = createServer(async (req, res) => {
       const f = join(ROOT, 'public', basename(p));
       if (!existsSync(f)) { send(res, 404, { error: 'Không tìm thấy file.' }); return; }
       res.writeHead(200, { 'Content-Type': MIME[extname(f)] || 'application/octet-stream' });
+      createReadStream(f).pipe(res); return;
+    }
+    if (req.method === 'GET' && p.startsWith('/uploads/')) {
+      // Chỉ phục vụ file đã tải lên qua /api/upload, lấy theo basename để khỏi đi ra ngoài thư mục uploads.
+      const f = join(UPLOADS, basename(decodeURIComponent(p)));
+      if (!existsSync(f)) { send(res, 404, { error: 'Không tìm thấy file đã tải lên.' }); return; }
+      res.writeHead(200, { 'Content-Type': MIME[extname(f).toLowerCase()] || 'application/octet-stream' });
       createReadStream(f).pipe(res); return;
     }
     if (req.method === 'GET' && p.startsWith('/out/')) {

@@ -12,6 +12,8 @@
   <p>Dán link Threads → lấy nguyên bài gốc + bình luận → sửa kịch bản → xuất video 9:16 có watermark, video nền, meme, nhạc nền và giọng đọc AI.</p>
 </header>
 <main>
+<div class="layout">
+<div class="editor">
   <section class="card">
     <h2>1 · Cào link bài viết &amp; bình luận gốc Threads</h2>
     <p class="hint">Chỉ lấy dữ liệu công khai. Tôn trọng điều khoản của Threads, đừng cào liên tục.</p>
@@ -75,10 +77,43 @@
     <p class="hint">Định dạng xuất: 1080p Full HD · 9:16 Shorts/TikTok · H.264 + AAC. Giọng đọc dùng Edge TTS miễn phí (cần mạng tới Edge trên máy chạy render).</p>
     <button id="btnRender" class="primary big">🎬 Xuất Video Hoàn Chỉnh</button>
     <p id="renderStatus" class="status" role="status"></p>
-    <video id="preview" controls playsinline hidden></video>
+    <video id="renderedVideo" controls playsinline hidden></video>
     <p><a id="downloadLink" href="#" hidden>Tải video xuống</a></p>
   </section>
   <footer><p>Fork nâng cấp từ <a href="https://github.com/Chuanyin1202/threads-toolkit">Chuanyin1202/threads-toolkit</a> (Apache-2.0). Phần cào giữ nguyên logic của toolkit gốc; Studio là phần mới.</p></footer>
+</div>
+<aside class="preview-panel card" aria-label="Xem trước video">
+  <h2>Xem trước <span class="sub">9:16 · cập nhật ngay khi sửa</span></h2>
+  <div class="preview-frame" id="previewFrame">
+    <div class="preview-bg" id="previewBg"></div>
+    <div class="preview-wm preview-wm-top" id="previewWmTop" hidden></div>
+    <div class="preview-card" id="previewCard">
+      <div class="preview-card-head">
+        <span class="preview-avatar" id="previewAvatar">?</span>
+        <span class="preview-names"><strong id="previewName">Chưa có đoạn nào</strong><small id="previewTime"></small></span>
+      </div>
+      <p class="preview-content" id="previewContent">Cào link hoặc bấm “Dùng dữ liệu demo” để xem thẻ bình luận hiện lên đúng như trong video xuất ra.</p>
+      <p class="preview-stats" id="previewStats"></p>
+    </div>
+    <div class="preview-meme" id="previewMeme" hidden></div>
+    <div class="preview-wm preview-wm-bottom" id="previewWmBottom" hidden></div>
+    <div class="preview-badge" id="previewBadge">0 / 0</div>
+  </div>
+  <div class="row preview-controls">
+    <button id="btnPrevSeg" type="button">◀ Đoạn trước</button>
+    <button id="btnPlayPreview" type="button" class="primary">▶ Phát thử</button>
+    <button id="btnNextSeg" type="button">Đoạn sau ▶</button>
+  </div>
+  <label>Đoạn đang xem
+    <select id="previewSegSelect"></select>
+  </label>
+  <p class="hint" id="previewInfo">Chưa có đoạn nào được đưa vào video.</p>
+  <label>Giọng đọc sẽ đọc (ô TTS của đoạn đang xem):
+    <textarea id="previewTts" rows="3" readonly></textarea>
+  </label>
+  <p class="hint">Đây là xem trước mô phỏng giao diện thẻ, watermark, nền và meme — chưa phải video thật và chưa có tiếng. Bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
+</aside>
+</div>
 </main>
 <script src="/static/app.js"></script>
 </body>

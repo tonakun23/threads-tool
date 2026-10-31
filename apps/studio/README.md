@@ -63,7 +63,9 @@ npx playwright install chromium
    **Dữ liệu demo** hoặc **Dán JSON dataset** của toolkit gốc / Apify.
 2. **Kịch bản:** mỗi đoạn có 2 ô — *chữ hiển thị trên thẻ* và *chữ đọc TTS*.
    Giữ nguyên câu chữ thì để 2 ô giống nhau. Chọn meme cho từng đoạn,
-   thêm/xoá/sắp xếp lại đoạn.
+   thêm/xoá/sắp xếp lại đoạn. Panel **Xem trước** bên phải hiện ngay khung
+   9:16 như video xuất ra (thẻ, watermark, nền, meme), bấm nút “👁 Xem” ở
+   từng đoạn hoặc “Phát thử” để chạy qua các đoạn theo thời lượng ước lượng.
 3. **Xuất video:** chọn giọng (Hoài My / Nam Minh), tốc độ đọc, watermark +
    vị trí, video nền (mp4, tự lặp), ảnh nền, nhạc nền + âm lượng → **Xuất Video**.
    Video ra ở `out/threads-comments-*.mp4`, xem trước và tải ngay trên web.
