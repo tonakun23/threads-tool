@@ -94,6 +94,10 @@ function groupCommentsIntoChains(comments) {
   return chains;
 }
 
+// Thẻ embed thật đang hiện trong khung xem trước (nếu có): giữ theo
+// key của đoạn, đổi đoạn thì quay về bản mô phỏng.
+const embedShotView = { key: null, shots: null };
+
 function renderPreview() {
   const segs = visibleSegments();
   const frame = $('#previewFrame');
@@ -116,9 +120,12 @@ function renderPreview() {
   top.hidden = !(wm && (pos === 'top' || pos === 'both'));
   bottom.hidden = !(wm && (pos === 'bottom' || pos === 'both'));
   const seg = segs[preview.index];
+  // Đổi đoạn thì bỏ ảnh embed đã chụp, quay về bản mô phỏng.
+  if (!seg || embedShotView.key !== seg.key) { embedShotView.key = seg ? seg.key : null; embedShotView.shots = null; }
   const select = $('#previewSegSelect');
   select.innerHTML = segs.map((s, i) => { const first = segItems(s)[0]; return `<option value="${i}" ${i === preview.index ? 'selected' : ''}>${i + 1}. ${s.kind === 'post' ? 'Bài gốc' : 'Bình luận'} @${esc(first?.author.username || '?')}${segItems(s).length > 1 ? ` +${segItems(s).length - 1} trả lời` : ''}</option>`; }).join('');
   if (!seg) {
+    $('#previewEmbedShots').hidden = true; $('#previewEmbedShots').innerHTML = '';
     $('#previewCardItems').innerHTML = `<div class="preview-item"><div class="preview-card-head"><span class="preview-avatar">?</span><span class="preview-names"><strong>Chưa có đoạn nào</strong></span></div><p class="preview-content">Cào link hoặc bấm “Dùng dữ liệu demo” để xem thẻ bình luận hiện lên đúng như trong video xuất ra.</p></div>`;
     $('#previewTts').value = '';
     $('#previewBadge').textContent = '0 / 0';
@@ -127,7 +134,15 @@ function renderPreview() {
     return;
   }
   const items = segItems(seg);
-  $('#previewCardItems').innerHTML = items.map((it, i) => `
+  const shotsBox = $('#previewEmbedShots');
+  if (embedShotView.shots) {
+    // Hiện đúng thẻ embed thật đã chụp, thay cho bản mô phỏng.
+    $('#previewCardItems').innerHTML = '';
+    shotsBox.hidden = false;
+    shotsBox.innerHTML = embedShotView.shots.map((s) => `<img src="${esc(s.pngUrl)}" alt="Thẻ embed Threads">`).join('');
+  } else {
+    shotsBox.hidden = true; shotsBox.innerHTML = '';
+    $('#previewCardItems').innerHTML = items.map((it, i) => `
     <div class="preview-item ${i > 0 ? 'reply' : ''}">
       <div class="preview-card-head">
         <span class="preview-avatar" style="background:${avatarColor(it.author.username)}">${esc(avatarLetter(it.author.username))}</span>
@@ -136,6 +151,7 @@ function renderPreview() {
       <p class="preview-content">${esc(it.content)}</p>
       <p class="preview-stats">${esc(statsLine(it.stats))}</p>
     </div>`).join('');
+  }
   $('#previewTts').value = items.map((it) => it.ttsText || it.content).join('\n');
   const kindLabel = seg.kind === 'post' ? 'BÀI GỐC' : (items.length > 1 ? `CHUỖI · ${items.length} BÌNH LUẬN` : 'BÌNH LUẬN');
   $('#previewBadge').textContent = `${preview.index + 1} / ${segs.length} · ${kindLabel}`;
@@ -143,6 +159,7 @@ function renderPreview() {
   const durs = segs.map((s) => estimateDuration(segText(s), rate));
   const total = durs.reduce((a, b) => a + b, 0);
   $('#previewInfo').textContent = `Đoạn này khoảng ${durs[preview.index].toFixed(1)} giây (ước lượng theo giọng đọc). Cả video khoảng ${total.toFixed(1)} giây, chưa tính thời gian render thật.`;
+  if (embedShotView.shots) $('#previewInfo').textContent += ' Đang hiện thẻ embed thật từ Threads (nền sáng) — đúng thẻ sẽ dùng trong video khi chọn kiểu thẻ Embed.';
   // Meme của đoạn đang xem.
   const meme = seg.memeId ? state.memes.find((m) => m.id === seg.memeId) : null;
   const memeKey = meme ? meme.id : '';
@@ -259,6 +276,30 @@ async function doScrape(mode, extra) {
   finally { btn.disabled = false; }
 }
 
+async function showEmbedShots() {
+  const segs = visibleSegments();
+  const seg = segs[preview.index];
+  if (!seg) return;
+  const urls = segItems(seg).map((it) => it.url || '').filter((u) => u.includes('/post/'));
+  const btn = $('#btnEmbedPreview');
+  if (!urls.length) {
+    $('#previewInfo').textContent = 'Đoạn này không có link Threads (thêm tay) nên không chụp thẻ embed được. Trong video, đoạn này dùng thẻ vẽ tay.';
+    return;
+  }
+  btn.disabled = true; btn.textContent = '⏳ Đang chụp thẻ thật…';
+  try {
+    const r = await fetch('/api/embed-shots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Không chụp được.');
+    const okShots = (j.shots || []).filter((s) => s.ok);
+    if (!okShots.length) throw new Error((j.shots || [])[0]?.error || 'Không chụp được thẻ embed.');
+    embedShotView.key = seg.key; embedShotView.shots = okShots;
+    renderPreview();
+  } catch (e) {
+    $('#previewInfo').textContent = 'Không chụp được thẻ embed: ' + e.message + ' — Vẫn hiện bản mô phỏng; video xuất ra sẽ dùng thẻ vẽ tay nếu chụp lỗi.';
+  } finally { btn.disabled = false; btn.textContent = '📷 Xem thẻ embed thật'; }
+}
+$('#btnEmbedPreview').addEventListener('click', showEmbedShots);
 $('#btnPrevSeg').addEventListener('click', () => { stopPreviewPlay(); setPreviewIndex(preview.index - 1); });
 $('#btnNextSeg').addEventListener('click', () => { stopPreviewPlay(); setPreviewIndex(preview.index + 1); });
 $('#btnPlayPreview').addEventListener('click', togglePreviewPlay);

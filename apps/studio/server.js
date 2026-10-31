@@ -16,6 +16,7 @@ const ROOT = resolve(HERE);
 const UPLOADS = join(ROOT, 'uploads');
 const OUT = join(ROOT, 'out');
 const JOBS = join(ROOT, 'jobs');
+const EMBED_PREVIEW = join(ROOT, 'embed-preview');
 for (const d of [UPLOADS, OUT, JOBS]) mkdirSync(d, { recursive: true });
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.svg': 'image/svg+xml' };
@@ -115,6 +116,13 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': MIME[extname(f).toLowerCase()] || 'application/octet-stream' });
       createReadStream(f).pipe(res); return;
     }
+    if (req.method === 'GET' && p.startsWith('/embed-preview/')) {
+      // Ảnh chụp thẻ embed đã lưu theo postId, lấy theo basename.
+      const f = join(EMBED_PREVIEW, basename(decodeURIComponent(p)));
+      if (!existsSync(f)) { send(res, 404, { error: 'Chưa có ảnh thẻ embed.' }); return; }
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      createReadStream(f).pipe(res); return;
+    }
     if (req.method === 'GET' && p.startsWith('/out/')) {
       const f = join(OUT, basename(p));
       if (!existsSync(f)) { send(res, 404, { error: 'Không tìm thấy video.' }); return; }
@@ -186,6 +194,56 @@ const server = createServer(async (req, res) => {
         try { const data = JSON.parse(out); data.comments = data.comments.slice(0, maxComments); send(res, 200, data); }
         catch { send(res, 502, { error: 'Scraper trả về dữ liệu không đọc được.' }); }
       });
+      return;
+    }
+    if (req.method === 'POST' && p === '/api/embed-shots') {
+      // Chụp thẻ embed thật cho panel xem trước: {urls:[...]} ->
+      // [{url, pngUrl, ok, error}]. Lưu theo postId để lần sau dùng lại
+      // ngay, không chụp lại. Chụp lỗi thì ok:false, giao diện giữ
+      // bản mô phỏng và báo lý do (vd: chưa cài playwright).
+      const body = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+      const urls = (Array.isArray(body.urls) ? body.urls : []).map(String).filter((u) => /^https?:\/\//.test(u) && u.includes('/post/')).slice(0, 5);
+      if (!urls.length) { send(res, 400, { error: 'Cần link bài Threads (/post/<id>).' }); return; }
+      mkdirSync(EMBED_PREVIEW, { recursive: true });
+      const postIdOf = (u) => (u.match(/\/post\/([A-Za-z0-9_-]+)/) || [])[1] || '';
+      const results = urls.map((url) => ({ url, postId: postIdOf(url), pngUrl: null, ok: false, error: '' }));
+      const missing = results.filter((r) => r.postId && !existsSync(join(EMBED_PREVIEW, r.postId + '.png')));
+      for (const r of results) {
+        if (r.postId && existsSync(join(EMBED_PREVIEW, r.postId + '.png'))) {
+          r.pngUrl = '/embed-preview/' + r.postId + '.png'; r.ok = true;
+        } else if (!r.postId) {
+          r.error = 'Không lấy được id bài từ link.';
+        }
+      }
+      if (missing.length) {
+        const manifestPath = join(EMBED_PREVIEW, 'manifest.json');
+        writeFileSync(manifestPath, JSON.stringify(missing.map((r) => ({ id: r.postId, url: r.url }))), 'utf8');
+        try {
+          const shotJson = await new Promise((resolveShot, rejectShot) => {
+            const child = spawn(process.execPath, [join(ROOT, 'embed-shot.js'), '--manifest', manifestPath, '--out-dir', EMBED_PREVIEW], { timeout: 150000 });
+            let out = '', err = '';
+            child.stdout.on('data', (d) => { out += d; });
+            child.stderr.on('data', (d) => { err += d; });
+            child.on('error', rejectShot);
+            child.on('close', (code) => {
+              if (code !== 0) rejectShot(new Error(err.trim().split('\n').pop() || 'embed-shot thất bại.'));
+              else resolveShot(out);
+            });
+          });
+          const byId = new Map(JSON.parse(shotJson).map((r) => [r.id, r]));
+          for (const r of missing) {
+            const shot = byId.get(r.postId);
+            if (shot?.ok && existsSync(join(EMBED_PREVIEW, r.postId + '.png'))) {
+              r.pngUrl = '/embed-preview/' + r.postId + '.png'; r.ok = true;
+            } else {
+              r.error = shot?.error || 'Không chụp được thẻ embed.';
+            }
+          }
+        } catch (e) {
+          for (const r of missing) r.error = e?.message || String(e);
+        }
+      }
+      send(res, 200, { shots: results });
       return;
     }
     if (req.method === 'POST' && p === '/api/render') {

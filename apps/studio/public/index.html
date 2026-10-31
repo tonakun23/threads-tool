@@ -92,6 +92,7 @@
     <div class="preview-wm preview-wm-top" id="previewWmTop" hidden></div>
     <div class="preview-card" id="previewCard">
       <div id="previewCardItems"></div>
+      <div id="previewEmbedShots" hidden></div>
     </div>
     <div class="preview-meme" id="previewMeme" hidden></div>
     <div class="preview-wm preview-wm-bottom" id="previewWmBottom" hidden></div>
@@ -102,6 +103,9 @@
     <button id="btnPlayPreview" type="button" class="primary">▶ Phát thử</button>
     <button id="btnNextSeg" type="button">Đoạn sau ▶</button>
   </div>
+  <div class="row preview-controls">
+    <button id="btnEmbedPreview" type="button">📷 Xem thẻ embed thật</button>
+  </div>
   <label>Đoạn đang xem
     <select id="previewSegSelect"></select>
   </label>
@@ -109,7 +113,7 @@
   <label>Giọng đọc sẽ đọc (ô TTS của đoạn đang xem):
     <textarea id="previewTts" rows="3" readonly></textarea>
   </label>
-  <p class="hint">Đây là xem trước mô phỏng giao diện thẻ, watermark, nền và meme — chưa phải video thật và chưa có tiếng. Bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
+  <p class="hint">Khung trên là xem trước mô phỏng (thẻ tối vẽ lại) — chưa phải video thật và chưa có tiếng. Bấm “📷 Xem thẻ embed thật” để xem đúng thẻ Threads sẽ dùng trong video (nền sáng, avatar và số liệu thật), hoặc bấm “Xuất Video Hoàn Chỉnh” để render ra MP4 có giọng đọc.</p>
 </aside>
 </div>
 </main>

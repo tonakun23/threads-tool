@@ -85,7 +85,7 @@ log sẽ ghi rõ. Muốn giọng khác (OpenAI / ElevenLabs…), thay `tts.py`.
 |---|---|
 | `server.js` | Web server Node thuần (không dependency), API + upload + job render |
 | `scraper.js` | Cào live bằng Playwright, in JSON `{post, comments}` |
-| `embed-shot.js` | Chụp thẻ Threads chính thức từ mã embed (`Get embed code`): dựng blockquote `text-post-media` + `embed.js`, chụp bằng Playwright. Cần Playwright + Chromium (chung với cào live). Chụp lỗi thì đoạn đó tự rơi về thẻ vẽ tay. |
+| `embed-shot.js` | Chụp thẻ Threads chính thức từ mã embed (`Get embed code`): dựng blockquote `text-post-media` + `embed.js`, chụp bằng Playwright. Cần Playwright + Chromium (chung với cào live). Chụp lỗi thì đoạn đó tự rơi về thẻ vẽ tay. Nút “📷 Xem thẻ embed thật” ở panel xem trước gọi `/api/embed-shots` để chụp và hiện đúng thẻ trong khung xem trước (lưu cache theo postId trong `embed-preview/`). |
 | `render.py` | Vẽ thẻ PNG (Pillow) + dựng clip từng đoạn + nối + trộn BGM (FFmpeg). Nếu `cardStyle=embed` và đủ ảnh embed thì xếp chồng ảnh embed thành thẻ thay cho vẽ tay. |
 | `tts.py` | Gọi Edge TTS, lỗi thì trả mã 2 để render fallback |
 | `demo-data.json` | Bài + 7 bình luận mẫu theo ảnh chụp Tony gửi |
