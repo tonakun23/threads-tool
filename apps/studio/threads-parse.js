@@ -95,6 +95,7 @@ function isJunkText(t, username, displayName) {
   if (/^\d[\d.,\s]*(triệu|nghìn|tr|k|m)?\s*(lượt xem|views?|lượt thích)$/i.test(clean)) return true;
   if (/^\d+\s*(giây|phút|giờ|ngày|tuần|tháng|năm)(\s+trước)?$/i.test(clean)) return true;
   if (/^(?:\d+\s*(?:giây|phút|giờ|ngày|tuần|tháng|năm)\s*)+(?:trước)?$/i.test(clean)) return true;
+  if (/^(hôm qua|hôm nay|vừa xong)$/i.test(clean)) return true;
   if (/^\d+[smhd]$/i.test(clean)) return true;
   if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(clean)) return true;
   if (/^\d{4}-\d{2}-\d{2}/.test(clean)) return true;
@@ -324,7 +325,17 @@ function extractPosts(doc) {
       // Chỉ lấy khối lá: bỏ khối cha nếu đã có khối con cùng chữ.
       const hasChildBlock = el.querySelector('div[dir="auto"], span[dir="auto"]');
       if (hasChildBlock) continue;
-      const text = (el.textContent || '').trim();
+      // Khối lá chứa thẻ <time> (giờ đăng) thì bỏ chữ giờ ra khỏi nội
+      // dung — DOM thật đặt giờ chung khối với tên tác giả, lọt vào
+      // nội dung thì giọng đọc đọc cả "tên 23 giờ" (Tony 01/11).
+      let text = (el.textContent || '').trim();
+      if (el.querySelector('time')) {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('time').forEach((n) => n.remove());
+        text = (clone.textContent || '').trim();
+        // Dấu phân cách còn trơ lại sau khi bỏ giờ ("eli2122 ·").
+        text = text.replace(/^[·•|\s–—-]+|[·•|\s–—-]+$/g, '').trim();
+      }
       if (isJunkText(text)) continue;
       if (!text) continue;
       if (!rawBlocks.includes(text)) rawBlocks.push(text);
@@ -332,8 +343,18 @@ function extractPosts(doc) {
     // Khối đầu tiên trùng đúng tên tác giả mà còn khối khác phía sau thì
     // đó là tên hiển thị lọt vào, bỏ. Chỉ còn đúng 1 khối trùng tên thì
     // giữ — đó là toàn bộ nội dung bài (bài đăng đúng tên mình).
+    // Tên kèm giờ đăng ("eli2122 · 23 giờ", "23 giờ · eli2122") cũng
+    // là đầu đề, bỏ nốt — giọng đọc không được đọc giờ (Tony 01/11).
     let blocks = rawBlocks;
-    if (blocks.length > 1 && (blocks[0] === username || blocks[0] === displayName)) blocks = blocks.slice(1);
+    if (blocks.length > 1) {
+      const head = blocks[0];
+      const headNoTime = head
+        .replace(/^\s*\d+\s*(giây|phút|giờ|ngày|tuần|tháng|năm)(\s+trước)?\s*[·•|\s–—-]*/i, '')
+        .replace(/\s*[·•|\s–—-]*\d+\s*(giây|phút|giờ|ngày|tuần|tháng|năm)(\s+trước)?\s*$/i, '')
+        .replace(/^[·•|\s–—-]+|[·•|\s–—-]+$/g, '')
+        .trim();
+      if (head === username || head === displayName || headNoTime === username || headNoTime === displayName) blocks = blocks.slice(1);
+    }
     let content = blocks.join('\n\n').trim();
     // Cắt phần đuôi là nhãn giao diện nếu lọt vào.
     content = content.split('\n').filter((line) => !isJunkText(line.trim())).join('\n').trim();

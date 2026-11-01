@@ -1,5 +1,5 @@
 /** Chạy: node tests/run-parse-tests.mjs (cần jsdom: xem tests/README.md)
- * 73 assertion, chia nhóm A–K. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
+ * 82 assertion, chia nhóm A–L. In PASS/FAIL từng ca, exit 1 nếu có ca fail.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -120,6 +120,18 @@ const kk = extractPosts(load('thread-outer-link.html'));
 check('K01', 'đủ 2 bài, đúng thứ tự, nội dung bài gốc không lẫn', kk.length === 2 && kk[0].id === 'MAIN01' && kk[1].id === 'REPLY02' && (kk[0].content || '').includes('Nội dung bài gốc'), kk.map((p) => [p.id, (p.content || '').slice(0, 30)]));
 check('K02', 'stats bài gốc từ nút trong thanh toolbar: 2,3K/108/359/1,7K', kk[0].stats.likes === 2300 && kk[0].stats.replies === 108 && kk[0].stats.reposts === 359 && kk[0].stats.shares === 1700, kk[0].stats);
 check('K03', 'stats bài trả lời riêng, không lẫn', kk[1].stats.likes === 16 && kk[1].stats.replies === 2 && kk[1].stats.reposts === 1 && kk[1].stats.shares === 14, kk[1].stats);
+
+// L: giờ đăng không lọt vào nội dung (Tony 01/11: giọng đọc đọc cả "23 giờ")
+const ll = extractPosts(load('thread-time-header.html'));
+check('L01', 'tên + giờ trong thẻ <time> chung khối: chỉ còn nội dung', ll[0].content === 'MÁY FARM CÔNG ĐỨC ĐẾN TỪ VIỆT NAM', ll[0].content);
+check('L02', 'tên + giờ chữ trần "lamlamdth · 23 giờ": chỉ còn nội dung', ll[1].content === 'Cho mình xin link game với', ll[1].content);
+check('L03', 'khối "Hôm qua" đứng riêng bị lọc', ll[2].content === 'Làm sao thêm vô màn hình chính vậy ạ', ll[2].content);
+check('L04', 'nội dung thật có chữ giờ "chờ 2 ngày nữa nhé" giữ nguyên', ll[3].content === 'chờ 2 ngày nữa nhé', ll[3].content);
+check('L05', 'giờ trong thẻ <time> giữa khối nội dung bị bỏ', ll[4].content === 'Nội dung hay quá', ll[4].content);
+check('L06', 'giờ đứng trước tên "23 giờ · eli2122": chỉ còn nội dung', ll[5].content === 'Bình luận cuối vẫn phải sạch giờ', ll[5].content);
+check('L07', '"Hôm qua" là rác', isJunkText('Hôm qua', 'u', 'U'), 'not junk');
+check('L08', '"Hôm nay"/"Vừa xong" là rác', isJunkText('Hôm nay', 'u', 'U') && isJunkText('Vừa xong', 'u', 'U'), 'not junk');
+check('L09', 'timeLabel vẫn giữ đủ "23 giờ"/"Hôm qua"/"2 ngày"', ll[0].timeLabel === '23 giờ' && ll[2].timeLabel === 'Hôm qua' && ll[3].timeLabel === '2 ngày', ll.map((p) => p.timeLabel));
 
 console.log(`\n${pass}/${pass + fail} ca PASS (${cases.filter((c) => c.ok).length} ok, ${fail} fail)`);
 process.exit(fail ? 1 : 0);
