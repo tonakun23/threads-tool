@@ -492,7 +492,7 @@ function loadData(data) {
   preview.index = 0;
   const vis = visibleSegments();
   if (vis.length) { markShotPending(vis[0]); renderPreview(); ensureRealShot(vis[0]); }
-  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận tương tác cao nhất (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.` + (data.diagnostic ? ` Số liệu bài gốc đang 0 — tool đã lưu file chẩn đoán DOM, bấm link “Tải file chẩn đoán DOM” bên dưới để tải và gửi mình file đó.` : ''));
+  status($('#scrapeStatus'), `Đã có bài viết gốc của @${data.post?.author?.username || '?'} và ${data.comments?.length || 0} bình luận nhiều tim nhất (${data.source || 'live'}), gộp thành ${chains.length} chuỗi hội thoại theo đúng thứ tự trên Threads. Kiểm tra và sửa kịch bản ở mục 2 rồi xuất video.` + (data.diagnostic ? ` Số liệu bài gốc đang 0 — tool đã lưu file chẩn đoán DOM, bấm link “Tải file chẩn đoán DOM” bên dưới để tải và gửi mình file đó.` : ''));
   const dg = $('#diagnosticLink');
   if (dg) {
     if (data.diagnostic) { dg.href = '/debug/' + encodeURIComponent(data.diagnostic); dg.hidden = false; }

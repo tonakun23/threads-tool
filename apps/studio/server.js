@@ -146,20 +146,22 @@ function parseEmbedCode(code) {
   return /^https?:\/\//.test(url) && /threads\.(com|net)/i.test(url) && url.includes('/post/') ? url : '';
 }
 
-// Chọn N bình luận tương tác cao nhất (tổng tim + trả lời + đăng lại
-// + chia sẻ), rồi trả về theo đúng thứ tự trên trang để chuỗi hội
-// thoại giữ nguyên vẹn. Bình luận chưa có số liệu (stats 0) thì giữ
-// thứ tự trang (sort ổn định).
+// Chọn N bình luận nhiều tim nhất (Tony 01/11: xếp theo số tim),
+// tim bằng nhau thì lấy tổng tương tác cao hơn, rồi trả về theo
+// đúng thứ tự trên trang để chuỗi hội thoại giữ nguyên vẹn.
+// Bình luận chưa có số liệu (stats 0) thì giữ thứ tự trang
+// (sort ổn định).
 function selectTopComments(comments, n) {
   const list = Array.isArray(comments) ? comments : [];
   if (list.length <= n) return list;
-  const score = (c) => {
+  const likes = (c) => (c.stats?.likes || 0);
+  const total = (c) => {
     const s = c.stats || {};
     return (s.likes || 0) + (s.replies || 0) + (s.reposts || 0) + (s.shares || 0);
   };
   const picked = new Set(list
     .map((c, i) => ({ c, i }))
-    .sort((a, b) => score(b.c) - score(a.c) || a.i - b.i)
+    .sort((a, b) => likes(b.c) - likes(a.c) || total(b.c) - total(a.c) || a.i - b.i)
     .slice(0, n)
     .map((x) => x.i));
   return list.filter((_, i) => picked.has(i));
@@ -292,7 +294,7 @@ const server = createServer(async (req, res) => {
       const url = String(body.url || '').trim();
       if (!url || !/threads\.(com|net)/i.test(url)) { send(res, 400, { error: 'Dán link bài viết Threads (threads.com / threads.net).' }); return; }
       // Cào live luôn lấy tối đa 50 bình luận để chọn ra N bình luận
-      // tương tác cao nhất; việc chọn làm ở selectTopComments bên dưới.
+      // nhiều tim nhất; việc chọn làm ở selectTopComments bên dưới.
       const child = spawn(process.execPath, [join(ROOT, 'scraper.js'), url, '50'], { timeout: 150000 });
       let out = '', err = '';
       child.stdout.on('data', (d) => { out += d; });
