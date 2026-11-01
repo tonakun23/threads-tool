@@ -62,6 +62,45 @@ function segText(seg) { return segItems(seg).map((it) => it.ttsText ?? it.conten
 // cào/demo/dán; chữ đã sửa tay trong ô TTS thì giữ nguyên, không
 // dọn lại. Trả '' khi không còn gì để đọc (vd bình luận chỉ có
 // @nhắc tên) — đoạn đó sẽ im lặng thay vì đọc câu giữ chỗ.
+// Bảng mở rộng từ viết tắt cho chữ đọc (Tony duyệt 01/11; bổ sung
+// kbt/khbiet/ntin/mqh + xác nhận v/mng 01/11). Chỉ áp cho chữ đọc
+// mặc định, chữ hiển thị giữ nguyên. Chưa mở rộng các từ đa nghĩa
+// chưa chốt: đk (được/đăng ký), bt (bình thường/biết),
+// mk (mình/mật khẩu), đm/dcm.
+const TTS_ABBR = {
+  m: 'mày', t: 'tao', b: 'bạn', e: 'em', a: 'anh', c: 'chị',
+  mik: 'mình', mn: 'mọi người', mng: 'mọi người',
+  ae: 'anh em', ny: 'người yêu', ck: 'chồng', vk: 'vợ', cr: 'crush',
+  bff: 'bạn thân', 'gđ': 'gia đình', bm: 'bố mẹ', bme: 'bố mẹ', tui: 'tôi',
+  k: 'không', ko: 'không', hok: 'không', kh: 'không',
+  kbt: 'không biết', khbiet: 'không biết',
+  chx: 'chưa', r: 'rồi', roi: 'rồi', rui: 'rồi',
+  'đc': 'được', dc: 'được', 'đg': 'đang', dg: 'đang',
+  'bít': 'biết', bik: 'biết', thk: 'thích', thik: 'thích',
+  'mún': 'muốn', mun: 'muốn',
+  lm: 'làm', ns: 'nói', nc: 'nói chuyện', ntin: 'nhắn tin',
+  rep: 'trả lời', ib: 'nhắn tin', inb: 'nhắn tin',
+  j: 'gì', ntn: 'như thế nào', ntnao: 'như thế nào',
+  z: 'vậy', v: 'vậy', 'zị': 'vậy',
+  'thiệt': 'thật', 'thiệc': 'thật',
+  'qá': 'quá', 'wá': 'quá', wa: 'quá',
+  lun: 'luôn', 'nhìu': 'nhiều', nhiu: 'nhiều', siu: 'siêu',
+  iu: 'yêu', 'iêu': 'yêu', dth: 'dễ thương', gato: 'ghen tị',
+  kkk: 'ha ha ha',
+  tks: 'cảm ơn', xl: 'xin lỗi', sr: 'xin lỗi', sry: 'xin lỗi',
+  bb: 'tạm biệt', pp: 'tạm biệt', oke: 'ok',
+  'đr': 'đúng rồi', dr: 'đúng rồi', uk: 'ừ',
+  fb: 'Facebook', ig: 'Instagram', yt: 'YouTube', tt: 'TikTok',
+  cmt: 'bình luận', stt: 'trạng thái', cap: 'chú thích', avt: 'ảnh đại diện',
+  acc: 'tài khoản', tk: 'tài khoản', 'đt': 'điện thoại', dt: 'điện thoại',
+  sp: 'sản phẩm', pass: 'mật khẩu', tr: 'trời',
+  vd: 'ví dụ', vdu: 'ví dụ', vv: 'vân vân', ncl: 'nói chung là',
+  hqua: 'hôm qua', hqa: 'hôm qua', hnay: 'hôm nay', hny: 'hôm nay',
+  mqh: 'mối quan hệ',
+  t2: 'thứ hai', t3: 'thứ ba', t4: 'thứ tư', t5: 'thứ năm',
+  t6: 'thứ sáu', t7: 'thứ bảy', cn: 'chủ nhật',
+  vl: 'vãi', vcl: 'vãi cả', vch: 'vãi chưởng',
+};
 function cleanTtsText(text) {
   let t = String(text || '');
   t = t.replace(/https?:\/\/\S+/gi, ' ');
@@ -77,6 +116,23 @@ function cleanTtsText(text) {
   t = t.replace(/#[\p{L}\p{N}_]+/gu, ' ');
   t = t.replace(/@[\p{L}\p{N}_.]+/gu, ' ');
   t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{FE0F}\u{200D}]/gu, ' ');
+  // Từ viết tắt -> dạng đầy đủ: chỉ khớp khi cả từ (đã bóc dấu câu
+  // quanh nó) đúng là từ viết tắt — khỏi động vào "không", "U.S.A",
+  // "t-shirt", "2k4".
+  t = t.split(/(\s+)/).map((part) => {
+    if (!part || /^\s+$/.test(part)) return part;
+    const m = part.match(/^[^\p{L}\p{N}_]*([\p{L}\p{N}_]+)[^\p{L}\p{N}_]*$/u);
+    if (!m) return part;
+    const exp = TTS_ABBR[m[1].toLowerCase()];
+    if (!exp) return part;
+    return part.replace(m[1], exp);
+  }).join('');
+  // Số + đơn vị: 50k -> 50 nghìn, 8h30 -> 8 giờ 30 phút, 5tr -> 5 triệu.
+  t = t.replace(/(\d+(?:[.,]\d+)?)\s*k(?![\p{L}\p{N}_])/giu, '$1 nghìn');
+  t = t.replace(/(\d+)\s*h(\d{1,2})(?![\p{L}\p{N}_])/gu, '$1 giờ $2 phút');
+  t = t.replace(/(\d+)\s*h(?![\p{L}\p{N}_])/gu, '$1 giờ');
+  t = t.replace(/(\d+)\s*p(?![\p{L}\p{N}_])/gu, '$1 phút');
+  t = t.replace(/(\d+(?:[.,]\d+)?)\s*tr(?![\p{L}\p{N}_])/giu, '$1 triệu');
   return t.replace(/\s+([,.!?;:])/g, '$1').replace(/\s+/g, ' ').trim();
 }
 
